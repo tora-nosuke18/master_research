@@ -1,0 +1,1299 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Crater LiDAR Interactive Simulator</title>
+  <style>
+    :root {
+      --bg: #f5f6f2;
+      --panel: #ffffff;
+      --ink: #202522;
+      --muted: #68716b;
+      --line: #d9ded8;
+      --accent: #1f7a68;
+      --accent-2: #c93f26;
+      --lidar: #1f5fbf;
+      --fit: #00a6c8;
+      --shadow: rgba(24, 33, 27, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 330px minmax(0, 1fr);
+    }
+
+    aside {
+      padding: 18px;
+      background: var(--panel);
+      border-right: 1px solid var(--line);
+      overflow: auto;
+    }
+
+    main {
+      min-width: 0;
+      padding: 18px;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    h1 {
+      font-size: 20px;
+      line-height: 1.2;
+      margin: 0 0 6px;
+    }
+
+    .sub {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .control {
+      padding: 14px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .label-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    label {
+      font-size: 14px;
+      font-weight: 650;
+    }
+
+    output {
+      font-variant-numeric: tabular-nums;
+      color: var(--accent);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--ink);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-weight: 650;
+      cursor: pointer;
+    }
+
+    button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 10px;
+    }
+
+    .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 76px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 24px;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .views {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr);
+      gap: 14px;
+    }
+
+    .view {
+      min-width: 0;
+      min-height: 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 8px 24px var(--shadow);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+
+    .view header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .view h2 {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .swatch {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .swatch::before {
+      content: "";
+      width: 16px;
+      height: 3px;
+      background: var(--ink);
+      border-radius: 4px;
+    }
+
+    .actual::before { background: var(--accent-2); }
+    .fit::before { background: var(--fit); }
+    .ray::before { background: var(--lidar); }
+    .point::before { background: #111; }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #eef1e9;
+      cursor: grab;
+      touch-action: none;
+    }
+
+    canvas:active {
+      cursor: grabbing;
+    }
+
+    .stack {
+      min-height: 0;
+      display: grid;
+      grid-template-rows: minmax(260px, 1fr) minmax(260px, 1fr);
+      gap: 14px;
+    }
+
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 1fr; }
+      aside { border-right: 0; border-bottom: 1px solid var(--line); }
+      .views { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside>
+      <h1>Crater LiDAR Simulator</h1>
+      <p class="sub">クレーター形状とLiDAR配置を変えながら、地形、可視点群、RANSAC相当の補完円を確認できます。各ビューはスクロールで拡大縮小できます。</p>
+
+      <div class="control">
+        <div class="label-row">
+          <label for="diameter">クレーター直径</label>
+          <output id="diameterValue"></output>
+        </div>
+        <input id="diameter" type="range" min="2" max="20" step="0.5" value="10">
+      </div>
+
+      <div class="control">
+        <div class="label-row">
+          <label for="depth">クレーター深さ</label>
+          <output id="depthValue"></output>
+        </div>
+        <input id="depth" type="range" min="0.1" max="5" step="0.1" value="1.7">
+      </div>
+
+      <div class="control">
+        <div class="label-row">
+          <label for="height">センサ設置高さ</label>
+          <output id="heightValue"></output>
+        </div>
+        <input id="height" type="range" min="0.3" max="3" step="0.1" value="1.5">
+      </div>
+
+      <div class="control">
+        <div class="label-row">
+          <label for="distance">センサと前方リムの距離</label>
+          <output id="distanceValue"></output>
+        </div>
+        <input id="distance" type="range" min="5" max="50" step="1" value="15">
+      </div>
+
+      <div class="control">
+        <div class="label-row">
+          <label for="rangeNoise">測距ノイズ σ</label>
+          <output id="rangeNoiseValue"></output>
+        </div>
+        <input id="rangeNoise" type="range" min="0" max="0.12" step="0.01" value="0.02">
+      </div>
+
+      <div class="control">
+        <div class="label-row">
+          <label for="horizontalFov">水平視野角</label>
+          <output id="horizontalFovValue"></output>
+        </div>
+        <input id="horizontalFov" type="range" min="10" max="120" step="1" value="54">
+      </div>
+
+      <div class="control">
+        <div class="label-row">
+          <label for="verticalFov">垂直視野角</label>
+          <output id="verticalFovValue"></output>
+        </div>
+        <input id="verticalFov" type="range" min="2" max="40" step="1" value="16">
+      </div>
+
+      <div class="control">
+        <div class="label-row">
+          <label for="angularResolution">角度分解能</label>
+          <output id="angularResolutionValue"></output>
+        </div>
+        <input id="angularResolution" type="range" min="0.5" max="4" step="0.25" value="1">
+      </div>
+
+      <div class="control">
+        <div class="label-row">
+          <label for="negativeThreshold">負の障害物閾値</label>
+          <output id="negativeThresholdValue"></output>
+        </div>
+        <input id="negativeThreshold" type="range" min="-1" max="0" step="0.01" value="-0.25">
+      </div>
+
+      <div class="buttons">
+        <button class="primary" id="reset">初期値</button>
+        <button id="download">画像保存</button>
+      </div>
+    </aside>
+
+    <main>
+      <section class="metrics">
+        <div class="metric"><span>検出点数</span><strong id="pointCount">0</strong></div>
+        <div class="metric"><span>検出判定 DP</span><strong id="dp">0%</strong></div>
+        <div class="metric"><span>補完率 CR</span><strong id="cr">0%</strong></div>
+        <div class="metric"><span>補完直径</span><strong id="fitDiameter">0 m</strong></div>
+        <div class="metric"><span>リム高さ</span><strong id="rimHeight">0 m</strong></div>
+        <div class="metric"><span>DDR</span><strong id="ddr">0.00</strong></div>
+      </section>
+
+      <section class="views">
+        <div class="view">
+          <header>
+            <h2>上面地形ビュー</h2>
+            <div class="legend">
+              <span class="swatch ray">LiDAR</span>
+              <span class="swatch point">点群</span>
+              <span class="swatch actual">真の円</span>
+              <span class="swatch fit">補完円</span>
+            </div>
+          </header>
+          <canvas id="topCanvas"></canvas>
+        </div>
+
+        <div class="stack">
+          <div class="view">
+            <header><h2>横断面ビュー</h2></header>
+            <canvas id="profileCanvas"></canvas>
+          </div>
+          <div class="view">
+            <header><h2>疑似3D地形ビュー</h2></header>
+            <canvas id="surfaceCanvas"></canvas>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const controls = {
+      diameter: document.getElementById("diameter"),
+      depth: document.getElementById("depth"),
+      height: document.getElementById("height"),
+      distance: document.getElementById("distance"),
+      rangeNoise: document.getElementById("rangeNoise"),
+      horizontalFov: document.getElementById("horizontalFov"),
+      verticalFov: document.getElementById("verticalFov"),
+      angularResolution: document.getElementById("angularResolution"),
+      negativeThreshold: document.getElementById("negativeThreshold")
+    };
+
+    const outputs = {
+      diameter: document.getElementById("diameterValue"),
+      depth: document.getElementById("depthValue"),
+      height: document.getElementById("heightValue"),
+      distance: document.getElementById("distanceValue"),
+      rangeNoise: document.getElementById("rangeNoiseValue"),
+      horizontalFov: document.getElementById("horizontalFovValue"),
+      verticalFov: document.getElementById("verticalFovValue"),
+      angularResolution: document.getElementById("angularResolutionValue"),
+      negativeThreshold: document.getElementById("negativeThresholdValue"),
+      pointCount: document.getElementById("pointCount"),
+      dp: document.getElementById("dp"),
+      cr: document.getElementById("cr"),
+      fitDiameter: document.getElementById("fitDiameter"),
+      rimHeight: document.getElementById("rimHeight"),
+      ddr: document.getElementById("ddr")
+    };
+
+    const canvases = {
+      top: document.getElementById("topCanvas"),
+      profile: document.getElementById("profileCanvas"),
+      surface: document.getElementById("surfaceCanvas")
+    };
+
+    const defaultNegativePointThreshold = -0.25;
+
+    const zoom = {
+      top: 1,
+      profile: 1,
+      surface: 1
+    };
+
+    const pan = {
+      top: { x: 0, y: 0 },
+      profile: { y: 0, z: 0 },
+      surface: { x: 0, y: 0 }
+    };
+
+    let drag = null;
+
+    function params() {
+      return {
+        diameter: Number(controls.diameter.value),
+        depth: Number(controls.depth.value),
+        height: Number(controls.height.value),
+        distance: Number(controls.distance.value),
+        rangeNoise: Number(controls.rangeNoise.value),
+        horizontalFov: Number(controls.horizontalFov.value),
+        verticalFov: Number(controls.verticalFov.value),
+        angularResolution: Number(controls.angularResolution.value),
+        negativeThreshold: Number(controls.negativeThreshold.value)
+      };
+    }
+
+    function rimHeightRatioFromDdr(ddr) {
+      return 0;
+    }
+
+    function craterRadius(p) {
+      return p.diameter / 2;
+    }
+
+    function craterRimWidth(p) {
+      return Math.max(0.12 * craterRadius(p), 0.12);
+    }
+
+    function trueCraterRadius(p) {
+      return Math.max(0, craterRadius(p) - craterRimWidth(p));
+    }
+
+    function sensorPose(p) {
+      return {
+        x: 0,
+        y: -(p.distance + craterRadius(p)),
+        z: p.height
+      };
+    }
+
+    function zoomedRange(min, max, factor) {
+      const center = (min + max) / 2;
+      const half = (max - min) / (2 * factor);
+      return [center - half, center + half];
+    }
+
+    function shiftRange(range, shift) {
+      return [range[0] + shift, range[1] + shift];
+    }
+
+    function angleSamples(fovDeg, resolutionDeg) {
+      const count = Math.max(1, Math.floor(fovDeg / resolutionDeg) + 1);
+      if (count === 1) return [0];
+      const span = resolutionDeg * (count - 1);
+      const start = -span / 2;
+      return Array.from({ length: count }, (_, i) => (start + resolutionDeg * i) * Math.PI / 180);
+    }
+
+    function niceStep(span, targetTicks = 7) {
+      const raw = Math.max(1e-9, span / targetTicks);
+      const power = 10 ** Math.floor(Math.log10(raw));
+      const scaled = raw / power;
+      if (scaled <= 1) return power;
+      if (scaled <= 2) return 2 * power;
+      if (scaled <= 5) return 5 * power;
+      return 10 * power;
+    }
+
+    function formatTick(value, step) {
+      const decimals = Math.max(0, Math.min(3, Math.ceil(-Math.log10(step)) + 1));
+      const rounded = Math.abs(value) < step * 1e-6 ? 0 : value;
+      return rounded.toFixed(decimals).replace(/\.?0+$/, "");
+    }
+
+    function drawCartesianAxes(ctx, bounds, tx, ty, labels) {
+      const { width, height, margin, xMin, xMax, yMin, yMax } = bounds;
+      const xStep = niceStep(xMax - xMin);
+      const yStep = niceStep(yMax - yMin);
+
+      ctx.save();
+      ctx.lineWidth = 1;
+      ctx.font = "11px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+
+      ctx.strokeStyle = "rgba(32,37,34,0.14)";
+      ctx.fillStyle = "#68716b";
+      for (let x = Math.ceil(xMin / xStep) * xStep; x <= xMax + xStep * 0.5; x += xStep) {
+        const px = tx(x);
+        ctx.beginPath();
+        ctx.moveTo(px, margin);
+        ctx.lineTo(px, height - margin);
+        ctx.stroke();
+        ctx.fillText(formatTick(x, xStep), px, height - margin + 5);
+      }
+
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      for (let y = Math.ceil(yMin / yStep) * yStep; y <= yMax + yStep * 0.5; y += yStep) {
+        const py = ty(y);
+        ctx.beginPath();
+        ctx.moveTo(margin, py);
+        ctx.lineTo(width - margin, py);
+        ctx.stroke();
+        ctx.fillText(formatTick(y, yStep), margin - 6, py);
+      }
+
+      ctx.strokeStyle = "rgba(32,37,34,0.75)";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(margin, margin, width - margin * 2, height - margin * 2);
+
+      if (xMin <= 0 && xMax >= 0) {
+        ctx.beginPath();
+        ctx.moveTo(tx(0), margin);
+        ctx.lineTo(tx(0), height - margin);
+        ctx.stroke();
+      }
+      if (yMin <= 0 && yMax >= 0) {
+        ctx.beginPath();
+        ctx.moveTo(margin, ty(0));
+        ctx.lineTo(width - margin, ty(0));
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = "#202522";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(labels.x, width / 2, height - 5);
+      ctx.save();
+      ctx.translate(12, height / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(labels.y, 0, 0);
+      ctx.restore();
+      ctx.restore();
+    }
+
+    function drawScaleBar(ctx, width, height, pixelsPerMeter, labelPrefix = "") {
+      const targetPixels = Math.min(130, width * 0.22);
+      const meters = niceStep(targetPixels / Math.max(1e-9, pixelsPerMeter), 1);
+      const px = meters * pixelsPerMeter;
+      const x0 = width - px - 24;
+      const y0 = height - 24;
+
+      ctx.save();
+      ctx.strokeStyle = "#202522";
+      ctx.fillStyle = "#202522";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x0 + px, y0);
+      ctx.stroke();
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0 - 5);
+      ctx.lineTo(x0, y0 + 5);
+      ctx.moveTo(x0 + px, y0 - 5);
+      ctx.lineTo(x0 + px, y0 + 5);
+      ctx.stroke();
+      ctx.font = "12px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText(`${labelPrefix}${formatTick(meters, meters)} m`, x0 + px / 2, y0 - 7);
+      ctx.restore();
+    }
+
+    function craterHeight(x, y, p) {
+      const radius = craterRadius(p);
+      const rimWidth = craterRimWidth(p);
+      const rimHeight = rimHeightRatioFromDdr(p.depth / p.diameter) * p.diameter;
+      const rho = Math.hypot(x, y);
+      if (rho <= radius - rimWidth) {
+        return (rho * rho) * (p.depth - rimHeight) / ((radius - rimWidth) ** 2) - (p.depth - rimHeight);
+      }
+      if (rho <= radius + rimWidth) {
+        return rimHeight - (rimHeight / (rimWidth ** 2)) * ((rho - radius) ** 2);
+      }
+      return 0;
+    }
+
+    function colorForHeight(z, p) {
+      const low = -Math.max(p.depth, 0.1);
+      const t = Math.max(0, Math.min(1, (z - low) / (0.4 + Math.abs(low))));
+      const stops = [
+        [46, 64, 122],
+        [35, 122, 147],
+        [58, 151, 110],
+        [178, 181, 69],
+        [236, 202, 92]
+      ];
+      const scaled = t * (stops.length - 1);
+      const i = Math.min(stops.length - 2, Math.floor(scaled));
+      const f = scaled - i;
+      const c = stops[i].map((v, k) => Math.round(v + (stops[i + 1][k] - v) * f));
+      return `rgb(${c[0]},${c[1]},${c[2]})`;
+    }
+
+    function resizeCanvas(canvas) {
+      const rect = canvas.getBoundingClientRect();
+      const scale = window.devicePixelRatio || 1;
+      const width = Math.max(320, Math.floor(rect.width * scale));
+      const height = Math.max(240, Math.floor(rect.height * scale));
+      if (canvas.width !== width || canvas.height !== height) {
+        canvas.width = width;
+        canvas.height = height;
+      }
+      return { width, height, scale };
+    }
+
+    function randNoise(i, sigma) {
+      const x = Math.sin(i * 927.13 + 37.7) * 43758.5453;
+      const y = Math.sin(i * 311.91 + 11.3) * 24634.6345;
+      const u1 = Math.max(1e-6, x - Math.floor(x));
+      const u2 = y - Math.floor(y);
+      return sigma * Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    }
+
+    function rayGroundHit(p, sensor, h, v, maxRange) {
+      const step = 0.12;
+      let previous = 0.5;
+      for (let r = previous; r <= maxRange; r += step) {
+        const x = sensor.x + r * Math.cos(v) * Math.sin(h);
+        const y = sensor.y + r * Math.cos(v) * Math.cos(h);
+        const z = sensor.z + r * Math.sin(v);
+        if (z <= craterHeight(x, y, p)) {
+          let lo = previous;
+          let hi = r;
+          for (let i = 0; i < 8; i++) {
+            const mid = (lo + hi) / 2;
+            const mx = sensor.x + mid * Math.cos(v) * Math.sin(h);
+            const my = sensor.y + mid * Math.cos(v) * Math.cos(h);
+            const mz = sensor.z + mid * Math.sin(v);
+            if (mz <= craterHeight(mx, my, p)) hi = mid;
+            else lo = mid;
+          }
+          return hi;
+        }
+        previous = r;
+      }
+      return null;
+    }
+
+    function simulateLidar(p) {
+      const points = [];
+      const rays = [];
+      const sensor = sensorPose(p);
+      const radius = craterRadius(p);
+      const hSamples = angleSamples(p.horizontalFov, p.angularResolution);
+      const vSamples = angleSamples(p.verticalFov, p.angularResolution);
+      const pitchCenter = Math.atan2(-p.height, p.distance + radius);
+      const maxRange = Math.min(75, p.distance + p.diameter * 2 + 8);
+      const centerHi = hSamples.reduce((best, angle, index) => {
+        return Math.abs(angle) < Math.abs(hSamples[best]) ? index : best;
+      }, 0);
+      let rayIndex = 0;
+
+      for (let vi = 0; vi < vSamples.length; vi++) {
+        const v = pitchCenter + vSamples[vi];
+        for (let hi = 0; hi < hSamples.length; hi++) {
+          const h = hSamples[hi];
+          let hit = null;
+          const hitRange = rayGroundHit(p, sensor, h, v, maxRange);
+          if (hitRange !== null) {
+            const measuredRange = Math.max(0, hitRange + randNoise(rayIndex, p.rangeNoise));
+            const x = sensor.x + measuredRange * Math.cos(v) * Math.sin(h);
+            const y = sensor.y + measuredRange * Math.cos(v) * Math.cos(h);
+            const z = sensor.z + measuredRange * Math.sin(v);
+            hit = { x, y, z, h, v, hi, vi, rayIndex, profileBeam: hi === centerHi };
+          }
+          if (hit) {
+            points.push(hit);
+            if (vi % Math.max(1, Math.floor(vSamples.length / 4)) === 0 && hi % Math.max(1, Math.floor(hSamples.length / 6)) === 0) rays.push(hit);
+          }
+          rayIndex++;
+        }
+      }
+      return { points, rays };
+    }
+
+    function profileRays(p) {
+      const sensor = sensorPose(p);
+      const radius = craterRadius(p);
+      const vSamples = angleSamples(p.verticalFov, p.angularResolution);
+      const pitchCenter = Math.atan2(-p.height, p.distance + radius);
+      const maxRange = Math.min(75, p.distance + p.diameter * 2 + 8);
+      const rays = [];
+
+      for (let vi = 0; vi < vSamples.length; vi++) {
+        const v = pitchCenter + vSamples[vi];
+        const hitRange = rayGroundHit(p, sensor, 0, v, maxRange);
+        const r = hitRange === null ? maxRange : hitRange;
+        const end = {
+          y: sensor.y + r * Math.cos(v),
+          z: sensor.z + r * Math.sin(v),
+          hit: hitRange !== null,
+          v
+        };
+        rays.push(end);
+      }
+      return rays;
+    }
+
+    function topRays(p) {
+      const sensor = sensorPose(p);
+      const hSamples = angleSamples(p.horizontalFov, p.angularResolution);
+      const maxRange = Math.min(75, p.distance + p.diameter * 2 + 8);
+      return hSamples.map(h => ({
+        x: sensor.x + maxRange * Math.sin(h),
+        y: sensor.y + maxRange * Math.cos(h),
+        h
+      }));
+    }
+
+    function dbscan(points, eps, minSamples) {
+      const labels = new Array(points.length).fill(-1);
+      const visited = new Array(points.length).fill(false);
+      let clusterId = 0;
+
+      function neighborsOf(index) {
+        const found = [];
+        const p0 = points[index];
+        for (let i = 0; i < points.length; i++) {
+          if (Math.hypot(points[i].x - p0.x, points[i].y - p0.y) <= eps) found.push(i);
+        }
+        return found;
+      }
+
+      for (let i = 0; i < points.length; i++) {
+        if (visited[i]) continue;
+        visited[i] = true;
+        const neighbors = neighborsOf(i);
+        if (neighbors.length < minSamples) continue;
+
+        labels[i] = clusterId;
+        const seeds = neighbors.slice();
+        while (seeds.length) {
+          const current = seeds.pop();
+          if (!visited[current]) {
+            visited[current] = true;
+            const currentNeighbors = neighborsOf(current);
+            if (currentNeighbors.length >= minSamples) seeds.push(...currentNeighbors);
+          }
+          if (labels[current] === -1) labels[current] = clusterId;
+        }
+        clusterId++;
+      }
+      return labels;
+    }
+
+    function largestCluster(points, labels) {
+      const clusters = new Map();
+      for (let i = 0; i < labels.length; i++) {
+        if (labels[i] < 0) continue;
+        if (!clusters.has(labels[i])) clusters.set(labels[i], []);
+        clusters.get(labels[i]).push(points[i]);
+      }
+      let best = [];
+      for (const cluster of clusters.values()) {
+        if (cluster.length > best.length) best = cluster;
+      }
+      return best;
+    }
+
+    function circleFrom3(a, b, c) {
+      const det = 2 * (a.x * (b.y - c.y) + b.x * (c.y - a.y) + c.x * (a.y - b.y));
+      if (Math.abs(det) < 1e-8) return null;
+      const aa = a.x * a.x + a.y * a.y;
+      const bb = b.x * b.x + b.y * b.y;
+      const cc = c.x * c.x + c.y * c.y;
+      const cx = (aa * (b.y - c.y) + bb * (c.y - a.y) + cc * (a.y - b.y)) / det;
+      const cy = (aa * (c.x - b.x) + bb * (a.x - c.x) + cc * (b.x - a.x)) / det;
+      const r = Math.hypot(a.x - cx, a.y - cy);
+      if (!Number.isFinite(r)) return null;
+      return { cx, cy, r };
+    }
+
+    function solve3x3(matrix, vector) {
+      const a = matrix.map(row => row.slice());
+      const b = vector.slice();
+      for (let col = 0; col < 3; col++) {
+        let pivot = col;
+        for (let row = col + 1; row < 3; row++) {
+          if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) pivot = row;
+        }
+        if (Math.abs(a[pivot][col]) < 1e-10) return null;
+        [a[col], a[pivot]] = [a[pivot], a[col]];
+        [b[col], b[pivot]] = [b[pivot], b[col]];
+        const div = a[col][col];
+        for (let j = col; j < 3; j++) a[col][j] /= div;
+        b[col] /= div;
+        for (let row = 0; row < 3; row++) {
+          if (row === col) continue;
+          const factor = a[row][col];
+          for (let j = col; j < 3; j++) a[row][j] -= factor * a[col][j];
+          b[row] -= factor * b[col];
+        }
+      }
+      return b;
+    }
+
+    function leastSquaresCircle(points) {
+      if (points.length < 3) return null;
+      let sxx = 0, syy = 0, sxy = 0, sx = 0, sy = 0;
+      let bx = 0, by = 0, b0 = 0;
+      for (const p of points) {
+        const row0 = 2 * p.x;
+        const row1 = 2 * p.y;
+        const row2 = 1;
+        const rhs = p.x * p.x + p.y * p.y;
+        sxx += row0 * row0;
+        syy += row1 * row1;
+        sxy += row0 * row1;
+        sx += row0;
+        sy += row1;
+        bx += row0 * rhs;
+        by += row1 * rhs;
+        b0 += rhs;
+      }
+      const solution = solve3x3(
+        [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, points.length]],
+        [bx, by, b0]
+      );
+      if (!solution) return null;
+      const [cx, cy, c] = solution;
+      const r = Math.sqrt(Math.max(0, c + cx * cx + cy * cy));
+      if (!Number.isFinite(r)) return null;
+      return { cx, cy, r };
+    }
+
+    function ransacCircle(points, p) {
+      if (points.length < 4) return null;
+      const residualThreshold = Math.max(0.18, p.diameter * 0.035 + p.rangeNoise * 2.0);
+      const minRadius = Math.max(0.7, p.diameter * 0.18);
+      const maxRadius = Math.max(3, p.diameter * 1.25);
+      let best = null;
+      let bestInliers = [];
+      let bestScore = -Infinity;
+      const iterations = Math.min(900, Math.max(180, points.length * points.length * 2));
+
+      for (let i = 0; i < iterations; i++) {
+        const i1 = Math.floor(((Math.sin(i * 12.9898) * 43758.5453) % 1 + 1) % 1 * points.length);
+        const i2 = Math.floor(((Math.sin((i + 17) * 78.233) * 23171.629) % 1 + 1) % 1 * points.length);
+        const i3 = Math.floor(((Math.sin((i + 43) * 37.719) * 91573.137) % 1 + 1) % 1 * points.length);
+        if (i1 === i2 || i1 === i3 || i2 === i3) continue;
+        const model = circleFrom3(points[i1], points[i2], points[i3]);
+        if (!model || model.r < minRadius || model.r > maxRadius) continue;
+
+        const inliers = [];
+        let residualSum = 0;
+        for (const pt of points) {
+          const residual = Math.abs(Math.hypot(pt.x - model.cx, pt.y - model.cy) - model.r);
+          if (residual <= residualThreshold) {
+            inliers.push(pt);
+            residualSum += residual;
+          }
+        }
+        if (inliers.length < 4) continue;
+        const meanResidual = residualSum / inliers.length;
+        const span = angularSpan(inliers, model);
+        const score = inliers.length * 20 + span * 8 - meanResidual * 100;
+        if (score > bestScore) {
+          bestScore = score;
+          best = model;
+          bestInliers = inliers;
+        }
+      }
+
+      if (!best || bestInliers.length < 4) return null;
+      const refined = leastSquaresCircle(bestInliers) || best;
+      if (refined.r < minRadius || refined.r > maxRadius) {
+        return { ...best, count: bestInliers.length };
+      }
+      return { ...refined, count: bestInliers.length };
+    }
+
+    function angularSpan(points, circle) {
+      const angles = points.map(pt => Math.atan2(pt.y - circle.cy, pt.x - circle.cx)).sort((a, b) => a - b);
+      if (angles.length < 2) return 0;
+      let maxGap = 0;
+      for (let i = 1; i < angles.length; i++) maxGap = Math.max(maxGap, angles[i] - angles[i - 1]);
+      maxGap = Math.max(maxGap, angles[0] + Math.PI * 2 - angles[angles.length - 1]);
+      return Math.PI * 2 - maxGap;
+    }
+
+    function fitCircle(points, p) {
+      const negative = points.filter(pt => pt.z < p.negativeThreshold);
+      if (negative.length < 4) return null;
+      const eps = Math.max(0.65, p.diameter * 0.11);
+      const labels = dbscan(negative, eps, 3);
+      const cluster = largestCluster(negative, labels);
+      if (cluster.length < 4) return null;
+      return ransacCircle(cluster, p);
+    }
+
+    function circleIntersectionArea(r1, r2, d) {
+      if (!Number.isFinite(r2) || r2 <= 0) return 0;
+      if (d >= r1 + r2) return 0;
+      if (d <= Math.abs(r1 - r2)) return Math.PI * Math.min(r1, r2) ** 2;
+      const a = r1 * r1 * Math.acos((d * d + r1 * r1 - r2 * r2) / (2 * d * r1));
+      const b = r2 * r2 * Math.acos((d * d + r2 * r2 - r1 * r1) / (2 * d * r2));
+      const c = 0.5 * Math.sqrt((-d + r1 + r2) * (d + r1 - r2) * (d - r1 + r2) * (d + r1 + r2));
+      return a + b - c;
+    }
+
+    function drawTop(p, sim, fit) {
+      const canvas = canvases.top;
+      const { width, height } = resizeCanvas(canvas);
+      const ctx = canvas.getContext("2d");
+      const radius = craterRadius(p);
+      const sensor = sensorPose(p);
+      const margin = 34;
+      const baseXMin = -Math.max(10, p.diameter * 0.85);
+      const baseXMax = Math.max(10, p.diameter * 0.85);
+      const baseYMin = sensor.y - Math.max(4, p.distance * 0.08);
+      const baseYMax = radius + 8;
+      const [xMin, xMax] = shiftRange(zoomedRange(baseXMin, baseXMax, zoom.top), pan.top.x);
+      const [yMin, yMax] = shiftRange(zoomedRange(baseYMin, baseYMax, zoom.top), pan.top.y);
+      const sx = (width - margin * 2) / (xMax - xMin);
+      const sy = (height - margin * 2) / (yMax - yMin);
+      const s = Math.min(sx, sy);
+      const tx = x => margin + (x - xMin) * s;
+      const ty = y => height - margin - (y - yMin) * s;
+
+      ctx.clearRect(0, 0, width, height);
+      const cell = Math.max(2, Math.floor(width / 130));
+      for (let py = margin; py < height - margin; py += cell) {
+        for (let px = margin; px < width - margin; px += cell) {
+          const x = xMin + (px - margin) / s;
+          const y = yMin + (height - margin - py) / s;
+          ctx.fillStyle = colorForHeight(craterHeight(x, y, p), p);
+          ctx.fillRect(px, py, cell + 1, cell + 1);
+        }
+      }
+
+      drawCartesianAxes(ctx, { width, height, margin, xMin, xMax, yMin, yMax }, tx, ty, {
+        x: "x position (m)",
+        y: "y position (m)"
+      });
+      drawScaleBar(ctx, width, height, s);
+
+      ctx.strokeStyle = "#1f5fbf";
+      ctx.globalAlpha = 0.24;
+      ctx.lineWidth = 1;
+      for (const ray of topRays(p)) {
+        ctx.beginPath();
+        ctx.moveTo(tx(sensor.x), ty(sensor.y));
+        ctx.lineTo(tx(ray.x), ty(ray.y));
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      ctx.strokeStyle = "#c93f26";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(tx(0), ty(0), radius * s, 0, Math.PI * 2);
+      ctx.stroke();
+
+      if (fit) {
+        ctx.strokeStyle = "#00a6c8";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(tx(fit.cx), ty(fit.cy), fit.r * s, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = "#111";
+      for (const pt of sim.points.filter(pt => pt.z < p.negativeThreshold)) {
+        ctx.beginPath();
+        ctx.arc(tx(pt.x), ty(pt.y), 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = "#1f5fbf";
+      ctx.beginPath();
+      ctx.arc(tx(sensor.x), ty(sensor.y), 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#202522";
+      ctx.font = "12px system-ui";
+      ctx.fillText("sensor", tx(sensor.x) + 8, ty(sensor.y) - 8);
+    }
+
+    function drawProfile(p, sim) {
+      const canvas = canvases.profile;
+      const { width, height } = resizeCanvas(canvas);
+      const ctx = canvas.getContext("2d");
+      const radius = craterRadius(p);
+      const sensor = sensorPose(p);
+      const margin = 34;
+      const baseYMin = sensor.y - Math.max(4, p.distance * 0.08);
+      const baseYMax = radius + 8;
+      const [yMin, yMax] = shiftRange(zoomedRange(baseYMin, baseYMax, zoom.profile), pan.profile.y);
+      const baseZMin = -Math.max(1, p.depth * 1.1);
+      const baseZMax = Math.max(2.4, p.height + 0.8);
+      const [zMin, zMax] = shiftRange(zoomedRange(baseZMin, baseZMax, zoom.profile), pan.profile.z);
+      const tx = y => margin + (y - yMin) * (width - margin * 2) / (yMax - yMin);
+      const ty = z => height - margin - (z - zMin) * (height - margin * 2) / (zMax - zMin);
+
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#f7f8f4";
+      ctx.fillRect(0, 0, width, height);
+
+      drawCartesianAxes(ctx, { width, height, margin, xMin: yMin, xMax: yMax, yMin: zMin, yMax: zMax }, tx, ty, {
+        x: "world y position (m)",
+        y: "height z (m)"
+      });
+
+      ctx.strokeStyle = "#1f7a68";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      for (let i = 0; i <= 220; i++) {
+        const y = yMin + (yMax - yMin) * i / 220;
+        const z = craterHeight(0, y, p);
+        if (i === 0) ctx.moveTo(tx(y), ty(z));
+        else ctx.lineTo(tx(y), ty(z));
+      }
+      ctx.stroke();
+
+      ctx.strokeStyle = "#1f5fbf";
+      ctx.globalAlpha = 0.34;
+      ctx.lineWidth = 1;
+      for (const ray of profileRays(p)) {
+        ctx.beginPath();
+        ctx.moveTo(tx(sensor.y), ty(sensor.z));
+        ctx.lineTo(tx(ray.y), ty(ray.z));
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+
+      ctx.fillStyle = "#111";
+      for (const pt of sim.points.filter(pt => pt.profileBeam && pt.z < p.negativeThreshold)) {
+        ctx.beginPath();
+        ctx.arc(tx(pt.y), ty(pt.z), 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = "#1f5fbf";
+      ctx.fillRect(tx(sensor.y) - 5, ty(sensor.z) - 5, 10, 10);
+      drawScaleBar(ctx, width, height, (width - margin * 2) / (yMax - yMin));
+    }
+
+    function drawSurface(p) {
+      const canvas = canvases.surface;
+      const { width, height } = resizeCanvas(canvas);
+      const ctx = canvas.getContext("2d");
+      const radius = craterRadius(p);
+      const span = Math.max(12, p.diameter * 1.5) / zoom.surface;
+      const xMin = -span / 2 + pan.surface.x;
+      const xMax = span / 2 + pan.surface.x;
+      const yMin = -span / 2 + pan.surface.y;
+      const yMax = span / 2 + pan.surface.y;
+      const rows = 44;
+      const cols = 44;
+      const scale = Math.min(width / (span * 1.25), height / (span * 0.85));
+      const cx = width * 0.5;
+      const cy = height * 0.58;
+      const zScale = Math.max(18, scale * 2.2);
+
+      function project(x, y, z) {
+        const dx = x;
+        const dy = y;
+        return {
+          x: cx + (dx - dy) * 0.55 * scale,
+          y: cy + (dx + dy) * 0.28 * scale - z * zScale
+        };
+      }
+
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#eef1e9";
+      ctx.fillRect(0, 0, width, height);
+
+      for (let j = rows - 1; j >= 0; j--) {
+        for (let i = 0; i < cols - 1; i++) {
+          const x1 = xMin + (xMax - xMin) * i / (cols - 1);
+          const y1 = yMin + (yMax - yMin) * j / (rows - 1);
+          const x2 = xMin + (xMax - xMin) * (i + 1) / (cols - 1);
+          const y2 = yMin + (yMax - yMin) * (j + 1) / (rows - 1);
+          const z11 = craterHeight(x1, y1, p);
+          const z21 = craterHeight(x2, y1, p);
+          const z22 = craterHeight(x2, y2, p);
+          const z12 = craterHeight(x1, y2, p);
+          const a = project(x1, y1, z11);
+          const b = project(x2, y1, z21);
+          const c = project(x2, y2, z22);
+          const d = project(x1, y2, z12);
+          ctx.beginPath();
+          ctx.moveTo(a.x, a.y);
+          ctx.lineTo(b.x, b.y);
+          ctx.lineTo(c.x, c.y);
+          ctx.lineTo(d.x, d.y);
+          ctx.closePath();
+          ctx.fillStyle = colorForHeight((z11 + z21 + z22 + z12) / 4, p);
+          ctx.fill();
+        }
+      }
+
+      ctx.strokeStyle = "rgba(32,37,34,0.25)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i <= 160; i++) {
+        const a = i / 160 * Math.PI * 2;
+        const pt = project(Math.cos(a) * radius, Math.sin(a) * radius, 0.02);
+        if (i === 0) ctx.moveTo(pt.x, pt.y);
+        else ctx.lineTo(pt.x, pt.y);
+      }
+      ctx.stroke();
+
+      const axisLength = niceStep(span * 0.35, 1);
+      const origin = project(0, 0, 0);
+      const xAxis = project(axisLength, 0, 0);
+      const yAxis = project(0, axisLength, 0);
+      const zAxis = project(0, 0, Math.max(1, axisLength * 0.25));
+
+      ctx.save();
+      ctx.lineWidth = 2;
+      ctx.font = "12px system-ui";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      ctx.strokeStyle = "#b33a2b";
+      ctx.fillStyle = "#b33a2b";
+      ctx.beginPath();
+      ctx.moveTo(origin.x, origin.y);
+      ctx.lineTo(xAxis.x, xAxis.y);
+      ctx.stroke();
+      ctx.fillText(`x ${formatTick(axisLength, axisLength)} m`, xAxis.x + 24, xAxis.y);
+
+      ctx.strokeStyle = "#1f7a68";
+      ctx.fillStyle = "#1f7a68";
+      ctx.beginPath();
+      ctx.moveTo(origin.x, origin.y);
+      ctx.lineTo(yAxis.x, yAxis.y);
+      ctx.stroke();
+      ctx.fillText(`y ${formatTick(axisLength, axisLength)} m`, yAxis.x - 24, yAxis.y);
+
+      ctx.strokeStyle = "#1f5fbf";
+      ctx.fillStyle = "#1f5fbf";
+      ctx.beginPath();
+      ctx.moveTo(origin.x, origin.y);
+      ctx.lineTo(zAxis.x, zAxis.y);
+      ctx.stroke();
+      ctx.fillText("z", zAxis.x, zAxis.y - 12);
+      ctx.restore();
+
+      const barPixelsPerMeter = Math.hypot(project(1, 0, 0).x - origin.x, project(1, 0, 0).y - origin.y);
+      drawScaleBar(ctx, width, height, barPixelsPerMeter, "ground ");
+    }
+
+    function update() {
+      const p = params();
+      outputs.diameter.textContent = `${p.diameter.toFixed(1)} m`;
+      outputs.depth.textContent = `${p.depth.toFixed(1)} m`;
+      outputs.height.textContent = `${p.height.toFixed(1)} m`;
+      outputs.distance.textContent = `${p.distance.toFixed(0)} m`;
+      outputs.rangeNoise.textContent = `${p.rangeNoise.toFixed(2)} m`;
+      outputs.horizontalFov.textContent = `${p.horizontalFov.toFixed(0)}°`;
+      outputs.verticalFov.textContent = `${p.verticalFov.toFixed(0)}°`;
+      outputs.angularResolution.textContent = `${p.angularResolution.toFixed(2)}°`;
+      outputs.negativeThreshold.textContent = `${p.negativeThreshold.toFixed(2)} m`;
+      outputs.ddr.textContent = (p.depth / p.diameter).toFixed(2);
+      outputs.rimHeight.textContent = `${(rimHeightRatioFromDdr(p.depth / p.diameter) * p.diameter).toFixed(2)} m`;
+
+      const sim = simulateLidar(p);
+      const fit = fitCircle(sim.points, p);
+      const radius = trueCraterRadius(p);
+      const negativeCount = sim.points.filter(pt => pt.z < p.negativeThreshold).length;
+      const detected = negativeCount >= 4 && fit;
+      let cr = 0;
+      if (detected) {
+        const d = Math.hypot(fit.cx, fit.cy);
+        cr = radius > 0 ? circleIntersectionArea(radius, fit.r, d) / (Math.PI * radius * radius) : 0;
+      }
+
+      outputs.pointCount.textContent = String(negativeCount);
+      outputs.dp.textContent = detected ? "100%" : "0%";
+      outputs.cr.textContent = `${Math.round(Math.max(0, Math.min(1, cr)) * 100)}%`;
+      outputs.fitDiameter.textContent = fit ? `${(2 * fit.r).toFixed(1)} m` : "-";
+
+      drawTop(p, sim, fit);
+      drawProfile(p, sim);
+      drawSurface(p);
+    }
+
+    for (const input of Object.values(controls)) {
+      input.addEventListener("input", update);
+    }
+
+    for (const [name, canvas] of Object.entries(canvases)) {
+      canvas.addEventListener("wheel", event => {
+        event.preventDefault();
+        const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+        zoom[name] = Math.max(0.6, Math.min(8, zoom[name] * factor));
+        update();
+      }, { passive: false });
+
+      canvas.addEventListener("pointerdown", event => {
+        canvas.setPointerCapture(event.pointerId);
+        drag = {
+          name,
+          pointerId: event.pointerId,
+          lastX: event.clientX,
+          lastY: event.clientY
+        };
+      });
+
+      canvas.addEventListener("pointermove", event => {
+        if (!drag || drag.name !== name || drag.pointerId !== event.pointerId) return;
+        const dx = event.clientX - drag.lastX;
+        const dy = event.clientY - drag.lastY;
+        drag.lastX = event.clientX;
+        drag.lastY = event.clientY;
+        applyPan(name, canvas, dx, dy);
+        update();
+      });
+
+      canvas.addEventListener("pointerup", event => {
+        if (drag && drag.pointerId === event.pointerId) drag = null;
+      });
+
+      canvas.addEventListener("pointercancel", event => {
+        if (drag && drag.pointerId === event.pointerId) drag = null;
+      });
+    }
+
+    function applyPan(name, canvas, dx, dy) {
+      const p = params();
+      const rect = canvas.getBoundingClientRect();
+      const radius = craterRadius(p);
+      const sensor = sensorPose(p);
+      const marginCss = 34 / (window.devicePixelRatio || 1);
+      const drawableWidth = Math.max(1, rect.width - marginCss * 2);
+      const drawableHeight = Math.max(1, rect.height - marginCss * 2);
+
+      if (name === "top") {
+        const baseXMin = -Math.max(10, p.diameter * 0.85);
+        const baseXMax = Math.max(10, p.diameter * 0.85);
+        const baseYMin = sensor.y - Math.max(4, p.distance * 0.08);
+        const baseYMax = radius + 8;
+        const [xMin, xMax] = zoomedRange(baseXMin, baseXMax, zoom.top);
+        const [yMin, yMax] = zoomedRange(baseYMin, baseYMax, zoom.top);
+        pan.top.x -= dx * (xMax - xMin) / drawableWidth;
+        pan.top.y += dy * (yMax - yMin) / drawableHeight;
+        return;
+      }
+
+      if (name === "profile") {
+        const baseYMin = sensor.y - Math.max(4, p.distance * 0.08);
+        const baseYMax = radius + 8;
+        const [yMin, yMax] = zoomedRange(baseYMin, baseYMax, zoom.profile);
+        const [zMin, zMax] = zoomedRange(-Math.max(1, p.depth * 1.1), Math.max(2.4, p.height + 0.8), zoom.profile);
+        pan.profile.y -= dx * (yMax - yMin) / drawableWidth;
+        pan.profile.z += dy * (zMax - zMin) / drawableHeight;
+        return;
+      }
+
+      if (name === "surface") {
+        const span = Math.max(12, p.diameter * 1.5) / zoom.surface;
+        pan.surface.x -= dx * span / drawableWidth;
+        pan.surface.y += dy * span / drawableHeight;
+      }
+    }
+
+    document.getElementById("reset").addEventListener("click", () => {
+      controls.diameter.value = 10;
+      controls.depth.value = 1.7;
+      controls.height.value = 1.5;
+      controls.distance.value = 15;
+      controls.rangeNoise.value = 0.02;
+      controls.horizontalFov.value = 54;
+      controls.verticalFov.value = 16;
+      controls.angularResolution.value = 1;
+      controls.negativeThreshold.value = defaultNegativePointThreshold;
+      zoom.top = 1;
+      zoom.profile = 1;
+      zoom.surface = 1;
+      pan.top.x = 0;
+      pan.top.y = 0;
+      pan.profile.y = 0;
+      pan.profile.z = 0;
+      pan.surface.x = 0;
+      pan.surface.y = 0;
+      update();
+    });
+
+    document.getElementById("download").addEventListener("click", () => {
+      const link = document.createElement("a");
+      link.download = "crater_lidar_top_view.png";
+      link.href = canvases.top.toDataURL("image/png");
+      link.click();
+    });
+
+    window.addEventListener("resize", update);
+    update();
+  </script>
+</body>
+</html>
