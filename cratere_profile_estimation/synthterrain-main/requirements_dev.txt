@@ -1,0 +1,9 @@
+black
+coverage
+pip
+bump-my-version
+flake8
+pytest
+Sphinx
+twine
+ufmt

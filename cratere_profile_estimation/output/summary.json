@@ -1,0 +1,11 @@
+{
+  "diameter_m": 20.0,
+  "slope_deg": 10.0,
+  "sigma_slope_deg": 2.0,
+  "figure3_bin": "10-39.8",
+  "lambda_hat": 0.018000000000000002,
+  "diffusion_amount_m2": 7.200000000000001,
+  "current_dd_median": 0.06640650719749751,
+  "profile_csv": "output/profile.csv",
+  "profile_plot": "output/profile.png"
+}

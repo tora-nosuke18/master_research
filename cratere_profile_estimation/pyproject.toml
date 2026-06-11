@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crater-profile-estimation"
+version = "0.1.0"
+description = "Statistical estimation of degraded lunar crater profiles"
+requires-python = ">=3.10"
+dependencies = ["matplotlib>=3.7", "numpy>=1.24", "scipy>=1.10"]
+
+[project.scripts]
+estimate-crater-profile = "crater_profile_estimation.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

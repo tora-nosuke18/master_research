@@ -1,0 +1,100 @@
+synthterrainのクレーター断面モデルの処理法
+クレーター断面モデルは、基本的には **統計モデルではなく、経験的な決定論的プロファイルモデル**です。つまり、直径 `D` が与えられると、半径方向距離 `r` に対する高さ `h(r)` を多項式で決めます。
+ 
+中心で使われているのは [FTmod_Crater](<C:/Users/tiger/OneDrive/デスクトップ/ドキュメント/thesis_reproduction 2/synthterrain-main/synthterrain-main/src/python/synthterrain/crater/profile.py:117>) です。これは Fassett & Thomson 型の fresh crater 断面を、コード内で少し修正したものです。
+ 
+**断面の表現**
+`r` はクレーター中心からの相対半径で、`r = 1` がリム付近です。標高は直径 `D` を掛けて実スケールに戻します。
+ 
+内部と外部で別の3次多項式を使っています。
+ 
+```text
+inner(r) =
+-0.228809953
++0.227533882 r
++0.083116795 r^2
+-0.039499407 r^3
+ 
+outer(r) =
+ 0.188253307
+-0.187050452 r
++0.01844746 r^2
++0.01505647 r^3
+```
+ 
+`FTmod_Crater` では区間をこう分けています。
+ 
+```text
+0 <= r <= 0.98      : inner(r)
+0.98 < r <= 1.02   : rim plateau
+1.02 < r <= 1.5    : outer(r)
+r > 1.5            : 0
+```
+ 
+リム plateau は定数です。
+ 
+```text
+h_rim / D = 0.036822095
+```
+ 
+最後に、
+ 
+```text
+h(r) = D * profile(r)
+```
+ 
+として実標高に変換します。
+ 
+**クレーター底の処理**
+このモデルでは、内部多項式をそのまま使うと底が深くなりすぎる場合があるので、指定した深さで床面をクリップします。
+ 
+```text
+floor = rim_height - depth / D
+profile(r) = max(profile(r), floor)
+```
+ 
+実装箇所は [profile.py](<C:/Users/tiger/OneDrive/デスクトップ/ドキュメント/thesis_reproduction 2/synthterrain-main/synthterrain-main/src/python/synthterrain/crater/profile.py:169>) あたりです。
+ 
+`depth` が明示されない場合は、fresh crater の `d/D` を Stopar et al. 的な段階値から決めます。
+ 
+```text
+D >= 400 m : d/D = 0.21
+D >= 200 m : d/D = 0.17
+D >= 100 m : d/D = 0.15
+D >= 40 m  : d/D = 0.13
+D >= 10 m  : d/D = 0.11
+D >= 0 m   : d/D = 0.10
+```
+ 
+これは [stopar_fresh_dd](<C:/Users/tiger/OneDrive/デスクトップ/ドキュメント/thesis_reproduction 2/synthterrain-main/synthterrain-main/src/python/synthterrain/crater/profile.py:354>) で定義されています。
+ 
+**統計性が入る場所**
+断面モデル自体は決定論的です。ただし、拡散計算に渡す初期 `d/D` には統計的ばらつきが入る場合があります。
+ 
+[diffuse_d_over_D](<C:/Users/tiger/OneDrive/デスクトップ/ドキュメント/thesis_reproduction 2/synthterrain-main/synthterrain-main/src/python/synthterrain/crater/diffusion.py:107>) では、`start_dd_adjust=True` のとき、
+ 
+```text
+initial d/D ~ Normal(mean, std)
+```
+ 
+として初期深さをランダムに選びます。デフォルトは概ね、
+ 
+```text
+mean = 0.15
+std  = 0.02
+```
+ 
+ただし通常の合成処理では `start_dd_mean="Stopar step"` が使われるので、平均値は直径ごとの Stopar 段階値になります。
+ 
+要するに、このコードのクレーター断面は、
+ 
+```text
+直径 D
+→ Stopar 段階値または正規分布で fresh d/D を決定
+→ Fassett & Thomson 系の区分3次多項式で軸対称断面を作る
+→ 底面を指定深さでクリップ
+→ 2D の半径場に展開
+→ その後、地形拡散モデルで劣化
+```
+ 
+という流れです。断面形状そのものは「確率的に学習されたモデル」ではなく、文献ベースの経験式を使ったパラメトリックな形状モデルです。
