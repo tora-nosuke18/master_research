@@ -1,0 +1,25 @@
+{
+  "diameter_m": 5.0,
+  "lookup_diameter_m": 5.614672408001493,
+  "slope_deg": 10.0,
+  "sigma_slope_deg": 2.0,
+  "figure3_bin": "1-10",
+  "lambda_hat": 0.015,
+  "diffusion_amount_m2": 0.375,
+  "diffusion_q10_m2": 0.1,
+  "diffusion_q50_m2": 0.375,
+  "diffusion_q90_m2": 0.675,
+  "current_dd_median": 0.060956116765737534,
+  "quality_flags": {
+    "flag_no_slope_observation": false,
+    "flag_low_likelihood": false,
+    "flag_multimodal_likelihood": false,
+    "flag_out_of_distribution_D": false,
+    "flag_slope_outlier": false,
+    "flag_occluded_inner_wall": false
+  },
+  "lookup_table": "data/crater_lookup.npz",
+  "profile_csv": "output/profile_D5m_S10deg_sigma2deg_equal_scale.csv",
+  "profile_plot": "output/profile_D5m_S10deg_sigma2deg_equal_scale.png",
+  "likelihood_csv": "output/likelihood_D5m_S10deg_sigma2deg_equal_scale.csv"
+}

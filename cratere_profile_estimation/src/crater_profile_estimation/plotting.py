@@ -46,6 +46,7 @@ def save_profile_plot(estimate: EstimateResult, output: Path) -> None:
     ax.set_title(f"Estimated Current Crater Profile\n{observation}")
     ax.set_xlabel("Distance from crater center (m)")
     ax.set_ylabel("Elevation relative to surrounding surface (m)")
+    ax.set_aspect("equal", adjustable="box")
     ax.grid(alpha=0.25)
     ax.legend(loc="lower right")
     ax.text(

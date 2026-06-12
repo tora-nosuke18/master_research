@@ -93,9 +93,27 @@ def initial_depth_grid(
     return values, weights
 
 
+def initial_depth_density(
+    diameter_m: float,
+    values: ArrayLike,
+    standard_deviation: float,
+) -> NDArray[np.float64]:
+    """Evaluate and normalize p0 on an existing lookup-table x0 grid."""
+    if standard_deviation <= 0:
+        raise ValueError("standard_deviation must be positive")
+    x0 = np.asarray(values, dtype=float)
+    if x0.ndim != 1 or len(x0) < 2 or np.any(np.diff(x0) <= 0):
+        raise ValueError("values must be a strictly increasing 1-D grid")
+    mean = stopar_fresh_dd(diameter_m)
+    density = np.exp(-0.5 * ((x0 - mean) / standard_deviation) ** 2)
+    integral = np.trapezoid(density, x0)
+    if integral <= 0:
+        raise ValueError("initial d/D distribution has no support on lookup grid")
+    return density / integral
+
+
 def gaussian_pdf(value: float, means: ArrayLike, sigma: float) -> NDArray[np.float64]:
     if sigma <= 0:
         raise ValueError("sigma must be positive")
     z = (value - np.asarray(means, dtype=float)) / sigma
     return np.exp(-0.5 * z * z) / (sigma * math.sqrt(2.0 * math.pi))
-
