@@ -9,10 +9,7 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.special import logsumexp
 
-from .distributions import (
-    Figure3Distribution,
-    initial_depth_density,
-)
+from .distributions import figure3_bin, initial_depth_density
 from .lookup import DEFAULT_LOOKUP_PATH, LookupTable
 
 SLOPE_DD_COEFFICIENT = 151.377
@@ -22,7 +19,6 @@ LOG_FLOOR = np.log(np.finfo(float).tiny)
 @dataclass(frozen=True)
 class EstimatorConfig:
     initial_dd_std: float = 0.02
-    figure3_bandwidth: float = 0.003
     low_likelihood_threshold: float = 1.0e-6
     multimodal_relative_height: float = 0.25
 
@@ -109,11 +105,11 @@ def estimate_profile(
     predicted_dd = table.current_dd[diameter_index]
 
     p0 = initial_depth_density(lookup_diameter, x0, cfg.initial_dd_std)
-    current = Figure3Distribution.for_diameter(
-        lookup_diameter, cfg.figure3_bandwidth
-    )
-    log_terms = np.log(np.maximum(current.pdf(predicted_dd), np.finfo(float).tiny))
-    log_terms += np.log(np.maximum(p0[:, None], np.finfo(float).tiny))
+    # Requested likelihood model:
+    # L(s) = integral p_obs(S | a * G(x0, s)) p0(x0 | D) dx0.
+    # Fassett Figure 3's current d/D density p_c is intentionally excluded.
+    log_terms = np.log(np.maximum(p0[:, None], np.finfo(float).tiny))
+    log_terms = np.broadcast_to(log_terms, predicted_dd.shape).copy()
 
     if slope_deg is not None and sigma_slope_deg is not None:
         predicted_slope = SLOPE_DD_COEFFICIENT * predicted_dd
@@ -160,6 +156,7 @@ def estimate_profile(
         )
     quality_flags = {
         "flag_no_slope_observation": slope_deg is None,
+        "flag_diffusion_unidentifiable": slope_deg is None,
         "flag_low_likelihood": bool(
             np.nanmax(log_likelihood) < np.log(cfg.low_likelihood_threshold)
         ),
@@ -182,7 +179,7 @@ def estimate_profile(
         diffusion_q50_m2=_weighted_quantile_1d(s_values_observed, likelihood, 0.50),
         diffusion_q90_m2=_weighted_quantile_1d(s_values_observed, likelihood, 0.90),
         current_dd_median=_weighted_quantile_1d(dd_best, weights, 0.50),
-        figure3_bin=current.diameter_bin,
+        figure3_bin=figure3_bin(lookup_diameter),
         radius_m=radius_m,
         height_q10_m=_weighted_profile_quantile(profiles, weights, 0.10),
         height_q50_m=_weighted_profile_quantile(profiles, weights, 0.50),

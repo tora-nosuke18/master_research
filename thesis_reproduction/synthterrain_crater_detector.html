@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Crater LiDAR Interactive Simulator</title>
+  <title>synthterrain Crater Detection Simulator</title>
   <style>
     :root {
       --bg: #f5f6f2;
@@ -65,6 +65,16 @@
       line-height: 1.45;
     }
 
+    .model-note {
+      margin: 10px 0 4px;
+      padding: 10px 12px;
+      border-left: 3px solid var(--accent);
+      background: #eef6f2;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
     .control {
       padding: 14px 0;
       border-top: 1px solid var(--line);
@@ -95,12 +105,22 @@
       accent-color: var(--accent);
     }
 
+    select {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: white;
+    }
+
     .buttons {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 10px;
       margin-top: 16px;
     }
+
+    .buttons button:last-child { grid-column: 1 / -1; }
 
     button {
       border: 1px solid var(--line);
@@ -240,23 +260,49 @@
 <body>
   <div class="app">
     <aside>
-      <h1>Crater LiDAR Simulator</h1>
-      <p class="sub">クレーター形状とLiDAR配置を変えながら、地形、可視点群、RANSAC相当の補完円を確認できます。各ビューはスクロールで拡大縮小できます。</p>
+      <h1>synthterrain Crater Detector</h1>
+      <p class="sub">synthterrain と同じ手順でクレーター母集団を生成し、重畳した地形をLiDARで走査します。上面ビューのクレーターをクリックすると検出対象を変更できます。</p>
+      <p class="model-note">個数・直径: 平衡CSFD / 年代: 0から平衡到達年代までの一様分布 / 形状: Stopar fresh d/D + FTmod_Crater + 2次元線形拡散。</p>
 
       <div class="control">
         <div class="label-row">
-          <label for="diameter">クレーター直径</label>
-          <output id="diameterValue"></output>
+          <label for="csfd">平衡CSFD</label>
         </div>
-        <input id="diameter" type="range" min="2" max="20" step="0.5" value="10">
+        <select id="csfd"><option value="VIPER">VIPER_Env_Spec</option><option value="Trask">Trask</option></select>
       </div>
 
       <div class="control">
         <div class="label-row">
-          <label for="depth">クレーター深さ</label>
-          <output id="depthValue"></output>
+          <label for="fieldSize">生成領域（一辺）</label>
+          <output id="fieldSizeValue"></output>
         </div>
-        <input id="depth" type="range" min="0.1" max="5" step="0.1" value="1.7">
+        <input id="fieldSize" type="range" min="60" max="240" step="10" value="120">
+      </div>
+
+      <div class="control">
+        <div class="label-row">
+          <label for="minDiameter">最小直径</label>
+          <output id="minDiameterValue"></output>
+        </div>
+        <input id="minDiameter" type="range" min="1" max="40" step="1" value="10">
+      </div>
+
+      <div class="control">
+        <div class="label-row">
+          <label for="maxDiameter">最大直径</label>
+          <output id="maxDiameterValue"></output>
+        </div>
+        <input id="maxDiameter" type="range" min="20" max="100" step="2" value="50">
+      </div>
+
+      <div class="control">
+        <div class="label-row"><label for="seed">乱数シード</label><output id="seedValue"></output></div>
+        <input id="seed" type="range" min="1" max="999" step="1" value="42">
+      </div>
+
+      <div class="control">
+        <div class="label-row"><label for="maxCraterCount">最大生成数</label><output id="maxCraterCountValue"></output></div>
+        <input id="maxCraterCount" type="range" min="1" max="500" step="1" value="80">
       </div>
 
       <div class="control">
@@ -316,19 +362,22 @@
       </div>
 
       <div class="buttons">
-        <button class="primary" id="reset">初期値</button>
+        <button class="primary" id="generate">地形を生成</button>
         <button id="download">画像保存</button>
+        <button id="downloadCsv">クレーターCSV保存</button>
       </div>
     </aside>
 
     <main>
       <section class="metrics">
-        <div class="metric"><span>検出点数</span><strong id="pointCount">0</strong></div>
+        <div class="metric"><span>生成クレーター数</span><strong id="craterCount">0</strong></div>
+        <div class="metric"><span>負標高点数</span><strong id="pointCount">0</strong></div>
         <div class="metric"><span>検出判定 DP</span><strong id="dp">0%</strong></div>
         <div class="metric"><span>補完率 CR</span><strong id="cr">0%</strong></div>
         <div class="metric"><span>補完直径</span><strong id="fitDiameter">0 m</strong></div>
-        <div class="metric"><span>リム高さ</span><strong id="rimHeight">0 m</strong></div>
-        <div class="metric"><span>DDR</span><strong id="ddr">0.00</strong></div>
+        <div class="metric"><span>対象クレーター D / d/D</span><strong id="ddr">-</strong></div>
+        <div class="metric"><span>対象年代</span><strong id="rimHeight">-</strong></div>
+        <div class="metric"><span>総拡散ステップ</span><strong id="diffusionSteps">0</strong></div>
       </section>
 
       <section class="views">
@@ -361,8 +410,12 @@
 
   <script>
     const controls = {
-      diameter: document.getElementById("diameter"),
-      depth: document.getElementById("depth"),
+      csfd: document.getElementById("csfd"),
+      fieldSize: document.getElementById("fieldSize"),
+      minDiameter: document.getElementById("minDiameter"),
+      maxDiameter: document.getElementById("maxDiameter"),
+      seed: document.getElementById("seed"),
+      maxCraterCount: document.getElementById("maxCraterCount"),
       height: document.getElementById("height"),
       distance: document.getElementById("distance"),
       rangeNoise: document.getElementById("rangeNoise"),
@@ -373,8 +426,11 @@
     };
 
     const outputs = {
-      diameter: document.getElementById("diameterValue"),
-      depth: document.getElementById("depthValue"),
+      fieldSize: document.getElementById("fieldSizeValue"),
+      minDiameter: document.getElementById("minDiameterValue"),
+      maxDiameter: document.getElementById("maxDiameterValue"),
+      seed: document.getElementById("seedValue"),
+      maxCraterCount: document.getElementById("maxCraterCountValue"),
       height: document.getElementById("heightValue"),
       distance: document.getElementById("distanceValue"),
       rangeNoise: document.getElementById("rangeNoiseValue"),
@@ -382,12 +438,14 @@
       verticalFov: document.getElementById("verticalFovValue"),
       angularResolution: document.getElementById("angularResolutionValue"),
       negativeThreshold: document.getElementById("negativeThresholdValue"),
+      craterCount: document.getElementById("craterCount"),
       pointCount: document.getElementById("pointCount"),
       dp: document.getElementById("dp"),
       cr: document.getElementById("cr"),
       fitDiameter: document.getElementById("fitDiameter"),
       rimHeight: document.getElementById("rimHeight"),
-      ddr: document.getElementById("ddr")
+      ddr: document.getElementById("ddr"),
+      diffusionSteps: document.getElementById("diffusionSteps")
     };
 
     const canvases = {
@@ -411,11 +469,19 @@
     };
 
     let drag = null;
+    let craters = [];
+    let targetCrater = null;
+    let topViewTransform = null;
+    let suppressTopClick = false;
 
     function params() {
       return {
-        diameter: Number(controls.diameter.value),
-        depth: Number(controls.depth.value),
+        csfd: controls.csfd.value,
+        fieldSize: Number(controls.fieldSize.value),
+        minDiameter: Number(controls.minDiameter.value),
+        maxDiameter: Number(controls.maxDiameter.value),
+        seed: Number(controls.seed.value),
+        maxCraterCount: Number(controls.maxCraterCount.value),
         height: Number(controls.height.value),
         distance: Number(controls.distance.value),
         rangeNoise: Number(controls.rangeNoise.value),
@@ -426,22 +492,264 @@
       };
     }
 
-    function rimHeightRatioFromDdr(ddr) {
-      return 0;
+    function stoparFreshDD(diameter) {
+      if (diameter >= 400) return 0.21;
+      if (diameter >= 200) return 0.17;
+      if (diameter >= 100) return 0.15;
+      if (diameter >= 40) return 0.13;
+      if (diameter >= 10) return 0.11;
+      return 0.10;
+    }
+
+    const synthterrainRimRatio = 0.036822095;
+    const diffusionGridSize = 41;
+    let terrain = null;
+
+    function mulberry32(seed) {
+      return function() {
+        let t = seed += 0x6D2B79F5;
+        t = Math.imul(t ^ t >>> 15, t | 1);
+        t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      };
+    }
+
+    function csfdValue(name, diameter) {
+      if (name === "Trask") return 10 ** -1.1 * diameter ** -2;
+      return (diameter <= 80 ? 29174 * diameter ** -1.92 : 156228 * diameter ** -2.389) / 1e6;
+    }
+
+    const npfCoef = [-3.076756, -3.557528, 0.781027, 1.021521, -0.156012, -0.444058, 0.019977, 0.086850, -0.005874, -0.006809, 8.25e-4, 5.54e-5];
+    let grunProductionTable = null;
+
+    function npfCsfd(diameter) {
+      const x = Math.log10(diameter / 1000);
+      let polynomial = 0;
+      for (let i = npfCoef.length - 1; i >= 0; i--) polynomial = polynomial * x + npfCoef[i];
+      return 10 ** polynomial / 1e6;
+    }
+
+    function grunTable() {
+      if (grunProductionTable) return grunProductionTable;
+      const diameters = [];
+      const fluxes = [];
+      const rhoGramPerM3 = 2.5e6;
+      for (let i = 0; i <= 200; i++) {
+        const massGram = 10 ** (-18 + 20 * i / 200);
+        const terms = [0, 4e29 * massGram ** 1.85, 1.5e44 * massGram ** 3.7, 1.1e-2, 2.2e3 * massGram ** 0.306, 15];
+        const fluxPerM2Gyr = ((terms[1] + terms[2] + terms[3]) ** -0.52 + (terms[4] + terms[5]) ** -4.38) * 86400 * 365.25 * 1e9;
+        const radius = ((3 * massGram) / (4 * Math.PI * rhoGramPerM3)) ** (1 / 3);
+        const massKg = massGram / 1000;
+        const impactorDensity = rhoGramPerM3 / 1000;
+        const effectiveVelocity = 20000 * Math.sin(Math.PI / 4);
+        const densityRatio = 1500 / impactorDensity;
+        const mu = 0.43;
+        const nu = 1 / 3;
+        const pi2 = 1.62 * radius / effectiveVelocity ** 2;
+        const pi3 = 1e4 / (1500 * effectiveVelocity ** 2);
+        const expOne = (6 * nu - 2 - mu) / (3 * mu);
+        const expTwo = (6 * nu - 2) / (3 * mu);
+        const piV = 0.132 * (pi2 * densityRatio ** expOne + (0.26 * pi3 * densityRatio ** expTwo) ** ((2 + mu) / 2)) ** ((-3 * mu) / (2 + mu));
+        const volume = massKg * piV / 1500;
+        diameters.push(2 * 1.1 * 1.3 * volume ** (1 / 3));
+        fluxes.push(fluxPerM2Gyr);
+      }
+      diameters.push(10);
+      fluxes.push(npfCsfd(10));
+      grunProductionTable = { diameters, fluxes };
+      return grunProductionTable;
+    }
+
+    function productionCsfd(diameter) {
+      if (diameter >= 10) return npfCsfd(diameter);
+      const table = grunTable();
+      const logD = Math.log10(diameter);
+      let hi = table.diameters.findIndex(value => value >= diameter);
+      if (hi <= 0) return table.fluxes[0];
+      const lo = hi - 1;
+      const x0 = Math.log10(table.diameters[lo]);
+      const x1 = Math.log10(table.diameters[hi]);
+      const y0 = Math.log10(table.fluxes[lo]);
+      const y1 = Math.log10(table.fluxes[hi]);
+      return 10 ** (y0 + (y1 - y0) * (logD - x0) / (x1 - x0));
+    }
+
+    function equilibriumAge(name, diameter) {
+      const upper = 10 ** (Math.log10(diameter) + 0.1);
+      const equilibriumBin = Math.max(0, csfdValue(name, diameter) - csfdValue(name, upper));
+      const productionBin = Math.max(1e-20, productionCsfd(diameter) - productionCsfd(upper));
+      return 1e9 * equilibriumBin / productionBin;
+    }
+
+    function sampleDiameter(name, minD, maxD, random) {
+      const nMin = csfdValue(name, minD);
+      const nMax = csfdValue(name, maxD);
+      const target = nMax + random() * (nMin - nMax);
+      let lo = minD;
+      let hi = maxD;
+      for (let i = 0; i < 48; i++) {
+        const mid = (lo + hi) / 2;
+        if (csfdValue(name, mid) > target) lo = mid;
+        else hi = mid;
+      }
+      return (lo + hi) / 2;
+    }
+
+    function kappaDiffusivity(diameter) {
+      let kM2PerMyr;
+      if (diameter <= 11.2) kM2PerMyr = 0.0155;
+      else if (diameter < 45) kM2PerMyr = 1.55e-3 * diameter ** 0.974;
+      else if (diameter < 125) kM2PerMyr = 1.23e-3 * diameter ** 0.8386;
+      else kM2PerMyr = 5.2e-3 * diameter ** 1.3;
+      return kM2PerMyr / 1e6;
+    }
+
+    function ftmodProfile(radiusFraction, diameter, depth) {
+      const r = Math.max(0, radiusFraction);
+      let normalized = 0;
+      if (r <= 0.98) {
+        normalized = -0.228809953 + 0.227533882 * r + 0.083116795 * r ** 2 - 0.039499407 * r ** 3;
+      } else if (r <= 1.02) {
+        normalized = synthterrainRimRatio;
+      } else if (r <= 1.5) {
+        normalized = 0.188253307 - 0.187050452 * r + 0.01844746 * r ** 2 + 0.01505647 * r ** 3;
+      }
+      const floor = synthterrainRimRatio - depth / diameter;
+      return Math.max(normalized, floor) * diameter;
+    }
+
+    function buildCraterSurface(crater) {
+      const n = diffusionGridSize;
+      const diameter = crater.diameter;
+      const depth = crater.initialDD * diameter;
+      const spacing = 2 * diameter / n;
+      const dls = spacing ** 2 / 4;
+      const steps = Math.ceil(kappaDiffusivity(diameter) * crater.ageYears / dls);
+      const values = new Float64Array(n * n);
+      const next = new Float64Array(n * n);
+
+      for (let row = 0; row < n; row++) {
+        const yFraction = -2 + 4 * row / (n - 1);
+        for (let col = 0; col < n; col++) {
+          const xFraction = -2 + 4 * col / (n - 1);
+          values[row * n + col] = ftmodProfile(Math.hypot(xFraction, yFraction), diameter, depth);
+        }
+      }
+
+      for (let step = 0; step < steps; step++) {
+        next.set(values);
+        for (let row = 1; row < n - 1; row++) {
+          for (let col = 1; col < n - 1; col++) {
+            const i = row * n + col;
+            next[i] = values[i] + 0.25 * (
+              values[i + n] - 2 * values[i] + values[i - n]
+              + values[i + 1] - 2 * values[i] + values[i - 1]
+            );
+          }
+        }
+        values.set(next);
+      }
+
+      let min = Infinity;
+      let max = -Infinity;
+      for (const value of values) {
+        min = Math.min(min, value);
+        max = Math.max(max, value);
+      }
+      return { values, n, min, max, steps, diameter };
+    }
+
+    function localSurfaceHeight(surface, x, y) {
+      const fx = (x / surface.diameter + 2) * (surface.n - 1) / 4;
+      const fy = (y / surface.diameter + 2) * (surface.n - 1) / 4;
+      if (fx < 0 || fy < 0 || fx > surface.n - 1 || fy > surface.n - 1) return 0;
+      const x0 = Math.min(surface.n - 2, Math.floor(fx));
+      const y0 = Math.min(surface.n - 2, Math.floor(fy));
+      const tx = fx - x0;
+      const ty = fy - y0;
+      const i = y0 * surface.n + x0;
+      const a = surface.values[i] * (1 - tx) + surface.values[i + 1] * tx;
+      const b = surface.values[i + surface.n] * (1 - tx) + surface.values[i + surface.n + 1] * tx;
+      return a * (1 - ty) + b * ty;
+    }
+
+    function terrainHeight(x, y) {
+      let height = 0;
+      for (const crater of craters) height += localSurfaceHeight(crater.surface, x - crater.x, y - crater.y);
+      return height;
+    }
+
+    function generatePopulation(p) {
+      const random = mulberry32(p.seed);
+      const minD = Math.min(p.minDiameter, p.maxDiameter - 0.1);
+      const maxD = Math.max(p.maxDiameter, minD + 0.1);
+      const area = p.fieldSize ** 2;
+      const countAtMin = Math.floor(area * csfdValue(p.csfd, minD));
+      const countAtMax = Math.floor(area * csfdValue(p.csfd, maxD));
+      const expected = area * Math.max(0, csfdValue(p.csfd, minD) - csfdValue(p.csfd, maxD));
+      const csfdCount = Math.max(0, countAtMin - countAtMax);
+      const count = Math.min(csfdCount, p.maxCraterCount);
+      craters = [];
+      for (let i = 0; i < count; i++) {
+        const diameter = sampleDiameter(p.csfd, minD, maxD, random);
+        const maxAge = equilibriumAge(p.csfd, diameter);
+        const crater = {
+          id: i + 1,
+          x: (random() - 0.5) * p.fieldSize,
+          y: (random() - 0.5) * p.fieldSize,
+          diameter,
+          initialDD: stoparFreshDD(diameter),
+          equilibriumAgeYears: maxAge,
+          ageYears: random() * maxAge
+        };
+        crater.surface = buildCraterSurface(crater);
+        crater.currentDD = (crater.surface.max - crater.surface.min) / diameter;
+        craters.push(crater);
+      }
+      targetCrater = craters.reduce((best, crater) => {
+        if (!best) return crater;
+        const score = Math.hypot(crater.x, crater.y);
+        const bestScore = Math.hypot(best.x, best.y);
+        return score < bestScore ? crater : best;
+      }, null);
+
+      let min = 0;
+      let max = 0;
+      const samples = 60;
+      for (let row = 0; row <= samples; row++) {
+        for (let col = 0; col <= samples; col++) {
+          const z = terrainHeight((col / samples - 0.5) * p.fieldSize, (row / samples - 0.5) * p.fieldSize);
+          min = Math.min(min, z);
+          max = Math.max(max, z);
+        }
+      }
+      terrain = {
+        min,
+        max,
+        fieldSize: p.fieldSize,
+        steps: craters.reduce((sum, crater) => sum + crater.surface.steps, 0),
+        expected,
+        csfdCount
+      };
     }
 
     function craterRadius(p) {
-      return p.diameter / 2;
+      return targetCrater ? targetCrater.diameter / 2 : 1;
     }
 
     function trueCraterRadius(p) {
       return craterRadius(p);
     }
 
+    function targetDiameter() {
+      return targetCrater ? targetCrater.diameter : 2;
+    }
+
     function sensorPose(p) {
+      const center = targetCrater || { x: 0, y: 0 };
       return {
-        x: 0,
-        y: -(p.distance + craterRadius(p)),
+        x: center.x,
+        y: center.y - (p.distance + craterRadius(p)),
         z: p.height
       };
     }
@@ -573,18 +881,13 @@
     }
 
     function craterHeight(x, y, p) {
-      const radius = craterRadius(p);
-      const rimHeight = rimHeightRatioFromDdr(p.depth / p.diameter) * p.diameter;
-      const rho = Math.hypot(x, y);
-      if (rho <= radius) {
-        return (rho * rho) * (p.depth + rimHeight) / (radius ** 2) - p.depth;
-      }
-      return 0;
+      return terrainHeight(x, y);
     }
 
     function colorForHeight(z, p) {
-      const low = -Math.max(p.depth, 0.1);
-      const t = Math.max(0, Math.min(1, (z - low) / (0.4 + Math.abs(low))));
+      const low = terrain ? terrain.min : -0.1;
+      const high = terrain ? terrain.max : 0.1;
+      const t = Math.max(0, Math.min(1, (z - low) / Math.max(1e-6, high - low)));
       const stops = [
         [46, 64, 122],
         [35, 122, 147],
@@ -652,7 +955,7 @@
       const hSamples = angleSamples(p.horizontalFov, p.angularResolution);
       const vSamples = angleSamples(p.verticalFov, p.angularResolution);
       const pitchCenter = Math.atan2(-p.height, p.distance + radius);
-      const maxRange = Math.min(75, p.distance + p.diameter * 2 + 8);
+      const maxRange = Math.min(160, p.distance + targetDiameter() * 2 + 12);
       const centerHi = hSamples.reduce((best, angle, index) => {
         return Math.abs(angle) < Math.abs(hSamples[best]) ? index : best;
       }, 0);
@@ -686,7 +989,7 @@
       const radius = craterRadius(p);
       const vSamples = angleSamples(p.verticalFov, p.angularResolution);
       const pitchCenter = Math.atan2(-p.height, p.distance + radius);
-      const maxRange = Math.min(75, p.distance + p.diameter * 2 + 8);
+      const maxRange = Math.min(160, p.distance + targetDiameter() * 2 + 12);
       const rays = [];
 
       for (let vi = 0; vi < vSamples.length; vi++) {
@@ -707,7 +1010,7 @@
     function topRays(p) {
       const sensor = sensorPose(p);
       const hSamples = angleSamples(p.horizontalFov, p.angularResolution);
-      const maxRange = Math.min(75, p.distance + p.diameter * 2 + 8);
+      const maxRange = Math.min(160, p.distance + targetDiameter() * 2 + 12);
       return hSamples.map(h => ({
         x: sensor.x + maxRange * Math.sin(h),
         y: sensor.y + maxRange * Math.cos(h),
@@ -833,9 +1136,10 @@
 
     function ransacCircle(points, p) {
       if (points.length < 4) return null;
-      const residualThreshold = Math.max(0.18, p.diameter * 0.035 + p.rangeNoise * 2.0);
-      const minRadius = Math.max(0.7, p.diameter * 0.18);
-      const maxRadius = Math.max(3, p.diameter * 1.25);
+      const diameter = targetDiameter();
+      const residualThreshold = Math.max(0.18, diameter * 0.035 + p.rangeNoise * 2.0);
+      const minRadius = Math.max(0.7, diameter * 0.18);
+      const maxRadius = Math.max(3, diameter * 1.25);
       let best = null;
       let bestInliers = [];
       let bestScore = -Infinity;
@@ -889,7 +1193,7 @@
     function fitCircle(points, p) {
       const negative = points.filter(pt => pt.z < p.negativeThreshold);
       if (negative.length < 4) return null;
-      const eps = Math.max(0.65, p.diameter * 0.11);
+      const eps = Math.max(0.65, targetDiameter() * 0.11);
       const labels = dbscan(negative, eps, 3);
       const cluster = largestCluster(negative, labels);
       if (cluster.length < 4) return null;
@@ -913,10 +1217,11 @@
       const radius = craterRadius(p);
       const sensor = sensorPose(p);
       const margin = 34;
-      const baseXMin = -Math.max(10, p.diameter * 0.85);
-      const baseXMax = Math.max(10, p.diameter * 0.85);
+      const halfField = p.fieldSize / 2;
+      const baseXMin = -halfField;
+      const baseXMax = halfField;
       const baseYMin = sensor.y - Math.max(4, p.distance * 0.08);
-      const baseYMax = radius + 8;
+      const baseYMax = halfField;
       const [xMin, xMax] = shiftRange(zoomedRange(baseXMin, baseXMax, zoom.top), pan.top.x);
       const [yMin, yMax] = shiftRange(zoomedRange(baseYMin, baseYMax, zoom.top), pan.top.y);
       const sx = (width - margin * 2) / (xMax - xMin);
@@ -954,10 +1259,16 @@
       ctx.globalAlpha = 1;
 
       ctx.strokeStyle = "#c93f26";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(tx(0), ty(0), radius * s, 0, Math.PI * 2);
-      ctx.stroke();
+      ctx.lineWidth = 2;
+      for (const crater of craters) {
+        ctx.strokeStyle = crater === targetCrater ? "#ff7a00" : "#c93f26";
+        ctx.lineWidth = crater === targetCrater ? 4 : 2;
+        ctx.beginPath();
+        ctx.arc(tx(crater.x), ty(crater.y), crater.diameter / 2 * s, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      topViewTransform = { canvas, margin, xMin, xMax, yMin, yMax, s, tx, ty };
 
       if (fit) {
         ctx.strokeStyle = "#00a6c8";
@@ -991,9 +1302,9 @@
       const sensor = sensorPose(p);
       const margin = 34;
       const baseYMin = sensor.y - Math.max(4, p.distance * 0.08);
-      const baseYMax = radius + 8;
+      const baseYMax = targetCrater ? targetCrater.y + radius + 8 : radius + 8;
       const [yMin, yMax] = shiftRange(zoomedRange(baseYMin, baseYMax, zoom.profile), pan.profile.y);
-      const baseZMin = -Math.max(1, p.depth * 1.1);
+      const baseZMin = Math.min(-1, (terrain ? terrain.min : -1) - 0.3);
       const baseZMax = Math.max(2.4, p.height + 0.8);
       const [zMin, zMax] = shiftRange(zoomedRange(baseZMin, baseZMax, zoom.profile), pan.profile.z);
       const tx = y => margin + (y - yMin) * (width - margin * 2) / (yMax - yMin);
@@ -1013,7 +1324,7 @@
       ctx.beginPath();
       for (let i = 0; i <= 220; i++) {
         const y = yMin + (yMax - yMin) * i / 220;
-        const z = craterHeight(0, y, p);
+        const z = craterHeight(sensor.x, y, p);
         if (i === 0) ctx.moveTo(tx(y), ty(z));
         else ctx.lineTo(tx(y), ty(z));
       }
@@ -1047,7 +1358,7 @@
       const { width, height } = resizeCanvas(canvas);
       const ctx = canvas.getContext("2d");
       const radius = craterRadius(p);
-      const span = Math.max(12, p.diameter * 1.5) / zoom.surface;
+      const span = p.fieldSize / zoom.surface;
       const xMin = -span / 2 + pan.surface.x;
       const xMax = span / 2 + pan.surface.x;
       const yMin = -span / 2 + pan.surface.y;
@@ -1099,14 +1410,16 @@
 
       ctx.strokeStyle = "rgba(32,37,34,0.25)";
       ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (let i = 0; i <= 160; i++) {
-        const a = i / 160 * Math.PI * 2;
-        const pt = project(Math.cos(a) * radius, Math.sin(a) * radius, 0.02);
-        if (i === 0) ctx.moveTo(pt.x, pt.y);
-        else ctx.lineTo(pt.x, pt.y);
+      for (const crater of craters) {
+        ctx.beginPath();
+        for (let i = 0; i <= 80; i++) {
+          const angle = i / 80 * Math.PI * 2;
+          const pt = project(crater.x + Math.cos(angle) * crater.diameter / 2, crater.y + Math.sin(angle) * crater.diameter / 2, 0.02);
+          if (i === 0) ctx.moveTo(pt.x, pt.y);
+          else ctx.lineTo(pt.x, pt.y);
+        }
+        ctx.stroke();
       }
-      ctx.stroke();
 
       const axisLength = niceStep(span * 0.35, 1);
       const origin = project(0, 0, 0);
@@ -1151,8 +1464,11 @@
 
     function update() {
       const p = params();
-      outputs.diameter.textContent = `${p.diameter.toFixed(1)} m`;
-      outputs.depth.textContent = `${p.depth.toFixed(1)} m`;
+      outputs.fieldSize.textContent = `${p.fieldSize.toFixed(0)} m`;
+      outputs.minDiameter.textContent = `${p.minDiameter.toFixed(0)} m`;
+      outputs.maxDiameter.textContent = `${p.maxDiameter.toFixed(0)} m`;
+      outputs.seed.textContent = String(p.seed);
+      outputs.maxCraterCount.textContent = String(p.maxCraterCount);
       outputs.height.textContent = `${p.height.toFixed(1)} m`;
       outputs.distance.textContent = `${p.distance.toFixed(0)} m`;
       outputs.rangeNoise.textContent = `${p.rangeNoise.toFixed(2)} m`;
@@ -1160,8 +1476,12 @@
       outputs.verticalFov.textContent = `${p.verticalFov.toFixed(0)}°`;
       outputs.angularResolution.textContent = `${p.angularResolution.toFixed(2)}°`;
       outputs.negativeThreshold.textContent = `${p.negativeThreshold.toFixed(2)} m`;
-      outputs.ddr.textContent = (p.depth / p.diameter).toFixed(2);
-      outputs.rimHeight.textContent = `${(rimHeightRatioFromDdr(p.depth / p.diameter) * p.diameter).toFixed(2)} m`;
+      outputs.craterCount.textContent = terrain ? `${craters.length} / CSFD ${terrain.csfdCount}` : "0";
+      outputs.ddr.textContent = targetCrater ? `${targetCrater.diameter.toFixed(1)} m / ${targetCrater.currentDD.toFixed(3)}` : "-";
+      outputs.rimHeight.textContent = targetCrater ? `${(targetCrater.ageYears / 1e6).toFixed(0)} Myr` : "-";
+      outputs.diffusionSteps.textContent = terrain ? terrain.steps.toLocaleString("ja-JP") : "0";
+
+      if (!terrain || !targetCrater) return;
 
       const sim = simulateLidar(p);
       const fit = fitCircle(sim.points, p);
@@ -1170,7 +1490,7 @@
       const detected = negativeCount >= 4 && fit;
       let cr = 0;
       if (detected) {
-        const d = Math.hypot(fit.cx, fit.cy);
+        const d = Math.hypot(fit.cx - targetCrater.x, fit.cy - targetCrater.y);
         cr = radius > 0 ? circleIntersectionArea(radius, fit.r, d) / (Math.PI * radius * radius) : 0;
       }
 
@@ -1184,9 +1504,15 @@
       drawSurface(p);
     }
 
-    for (const input of Object.values(controls)) {
-      input.addEventListener("input", update);
+    const generationControls = [controls.csfd, controls.fieldSize, controls.minDiameter, controls.maxDiameter, controls.seed, controls.maxCraterCount];
+    const lidarControls = [controls.height, controls.distance, controls.rangeNoise, controls.horizontalFov, controls.verticalFov, controls.angularResolution, controls.negativeThreshold];
+    for (const input of generationControls) {
+      input.addEventListener("change", () => {
+        generatePopulation(params());
+        update();
+      });
     }
+    for (const input of lidarControls) input.addEventListener("input", update);
 
     for (const [name, canvas] of Object.entries(canvases)) {
       canvas.addEventListener("wheel", event => {
@@ -1202,7 +1528,8 @@
           name,
           pointerId: event.pointerId,
           lastX: event.clientX,
-          lastY: event.clientY
+          lastY: event.clientY,
+          moved: false
         };
       });
 
@@ -1210,6 +1537,7 @@
         if (!drag || drag.name !== name || drag.pointerId !== event.pointerId) return;
         const dx = event.clientX - drag.lastX;
         const dy = event.clientY - drag.lastY;
+        if (Math.hypot(dx, dy) > 2) drag.moved = true;
         drag.lastX = event.clientX;
         drag.lastY = event.clientY;
         applyPan(name, canvas, dx, dy);
@@ -1217,7 +1545,10 @@
       });
 
       canvas.addEventListener("pointerup", event => {
-        if (drag && drag.pointerId === event.pointerId) drag = null;
+        if (drag && drag.pointerId === event.pointerId) {
+          if (drag.name === "top") suppressTopClick = drag.moved;
+          drag = null;
+        }
       });
 
       canvas.addEventListener("pointercancel", event => {
@@ -1235,10 +1566,10 @@
       const drawableHeight = Math.max(1, rect.height - marginCss * 2);
 
       if (name === "top") {
-        const baseXMin = -Math.max(10, p.diameter * 0.85);
-        const baseXMax = Math.max(10, p.diameter * 0.85);
+        const baseXMin = -p.fieldSize / 2;
+        const baseXMax = p.fieldSize / 2;
         const baseYMin = sensor.y - Math.max(4, p.distance * 0.08);
-        const baseYMax = radius + 8;
+        const baseYMax = p.fieldSize / 2;
         const [xMin, xMax] = zoomedRange(baseXMin, baseXMax, zoom.top);
         const [yMin, yMax] = zoomedRange(baseYMin, baseYMax, zoom.top);
         pan.top.x -= dx * (xMax - xMin) / drawableWidth;
@@ -1248,31 +1579,57 @@
 
       if (name === "profile") {
         const baseYMin = sensor.y - Math.max(4, p.distance * 0.08);
-        const baseYMax = radius + 8;
+        const baseYMax = targetCrater ? targetCrater.y + radius + 8 : radius + 8;
         const [yMin, yMax] = zoomedRange(baseYMin, baseYMax, zoom.profile);
-        const [zMin, zMax] = zoomedRange(-Math.max(1, p.depth * 1.1), Math.max(2.4, p.height + 0.8), zoom.profile);
+        const [zMin, zMax] = zoomedRange(Math.min(-1, (terrain ? terrain.min : -1) - 0.3), Math.max(2.4, p.height + 0.8), zoom.profile);
         pan.profile.y -= dx * (yMax - yMin) / drawableWidth;
         pan.profile.z += dy * (zMax - zMin) / drawableHeight;
         return;
       }
 
       if (name === "surface") {
-        const span = Math.max(12, p.diameter * 1.5) / zoom.surface;
+        const span = p.fieldSize / zoom.surface;
         pan.surface.x -= dx * span / drawableWidth;
         pan.surface.y += dy * span / drawableHeight;
       }
     }
 
-    document.getElementById("reset").addEventListener("click", () => {
-      controls.diameter.value = 10;
-      controls.depth.value = 1.7;
-      controls.height.value = 1.5;
-      controls.distance.value = 15;
-      controls.rangeNoise.value = 0.02;
-      controls.horizontalFov.value = 54;
-      controls.verticalFov.value = 16;
-      controls.angularResolution.value = 1;
-      controls.negativeThreshold.value = defaultNegativePointThreshold;
+    function selectCraterAtTopView(event) {
+      if (!topViewTransform || !craters.length) return;
+      const rect = canvases.top.getBoundingClientRect();
+      const scale = window.devicePixelRatio || 1;
+      const px = (event.clientX - rect.left) * scale;
+      const py = (event.clientY - rect.top) * scale;
+      const worldX = topViewTransform.xMin + (px - topViewTransform.margin) / topViewTransform.s;
+      const worldY = topViewTransform.yMin + (canvases.top.height - topViewTransform.margin - py) / topViewTransform.s;
+
+      let selected = null;
+      let bestNormalizedDistance = Infinity;
+      for (const crater of craters) {
+        const normalizedDistance = Math.hypot(worldX - crater.x, worldY - crater.y) / (crater.diameter / 2);
+        if (normalizedDistance <= 1 && normalizedDistance < bestNormalizedDistance) {
+          selected = crater;
+          bestNormalizedDistance = normalizedDistance;
+        }
+      }
+      if (!selected || selected === targetCrater) return;
+
+      targetCrater = selected;
+      zoom.profile = 1;
+      pan.profile.y = 0;
+      pan.profile.z = 0;
+      update();
+    }
+
+    canvases.top.addEventListener("click", event => {
+      if (suppressTopClick) {
+        suppressTopClick = false;
+        return;
+      }
+      selectCraterAtTopView(event);
+    });
+
+    document.getElementById("generate").addEventListener("click", () => {
       zoom.top = 1;
       zoom.profile = 1;
       zoom.surface = 1;
@@ -1282,17 +1639,32 @@
       pan.profile.z = 0;
       pan.surface.x = 0;
       pan.surface.y = 0;
+      generatePopulation(params());
       update();
     });
 
     document.getElementById("download").addEventListener("click", () => {
       const link = document.createElement("a");
-      link.download = "crater_lidar_top_view.png";
+      link.download = "synthterrain_crater_detection.png";
       link.href = canvases.top.toDataURL("image/png");
       link.click();
     });
 
+    document.getElementById("downloadCsv").addEventListener("click", () => {
+      const header = "id,x,y,diameter,age_years,equilibrium_age_years,initial_d_over_D,current_d_over_D\n";
+      const rows = craters.map(crater => [
+        crater.id, crater.x, crater.y, crater.diameter, crater.ageYears,
+        crater.equilibriumAgeYears, crater.initialDD, crater.currentDD
+      ].join(",")).join("\n");
+      const link = document.createElement("a");
+      link.download = "synthterrain_craters.csv";
+      link.href = URL.createObjectURL(new Blob([header + rows + "\n"], { type: "text/csv" }));
+      link.click();
+      URL.revokeObjectURL(link.href);
+    });
+
     window.addEventListener("resize", update);
+    generatePopulation(params());
     update();
   </script>
 </body>

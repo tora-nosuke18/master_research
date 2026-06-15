@@ -444,7 +444,6 @@ L(s_k)
 ======
 
 \sum_j
-p_c(G[i,j,k]\mid D_i)
 p_0(x_{0j}\mid D_i)
 \Delta x_0
 ]
@@ -457,15 +456,11 @@ p_0(x_{0j}\mid D_i)
 for k in range(N_s):
     L[k] = 0
     for j in range(N_x0):
-        x_pred = G[i, j, k]
-        L[k] += pc(x_pred, D_i) * p0[i, j] * dx0
+        L[k] += p0[i, j] * dx0
 ```
 
-この場合、推定される (\kappa t) は、観測個体に強く条件付けされた値ではなく、
-
-> その直径のクレーターとして、Fassett Fig. 3 の現在 (d/D) 分布に最も整合する代表的拡散量
-
-である。
+この場合、尤度は原則として (s_k) に依存しないため、拡散量は識別できない。
+実装では最小の (s_k) を返し、品質フラグで識別不能を示す。
 
 ---
 
@@ -500,7 +495,6 @@ L(s_k)
 aG[i,j,k],
 \sigma_S^2
 \right)
-p_c(G[i,j,k]\mid D_i)
 p_0(x_{0j}\mid D_i)
 \Delta x_0
 ]
@@ -518,9 +512,8 @@ for k in range(N_s):
         x_pred = G[i, j, k]              # predicted current d/D
         S_pred = a * x_pred             # predicted inner-wall slope
         obs_like = normal_pdf(S_obs, mean=S_pred, std=sigma_S)
-        prior_current = pc(x_pred, D_i)
         prior_initial = p0[i, j]
-        L[k] += obs_like * prior_current * prior_initial * dx0
+        L[k] += obs_like * prior_initial * dx0
 ```
 
 数値アンダーフローを避けるならログ空間で計算する。
@@ -532,7 +525,6 @@ for j in range(N_x0):
     S_pred = a * x_pred
     log_terms.append(
         log_normal_pdf(S_obs, S_pred, sigma_S)
-        + log_pc(x_pred, D_i)
         + log_p0[i, j]
         + log(dx0)
     )
@@ -644,7 +636,6 @@ j_hat = nearest_index(x0_grid, x0_hat)
 \arg\max_{x_{0j}}
 \left[
 p_\mathrm{obs}(\tilde{S}\mid aG[i,j,\hat{k}])
-p_c(G[i,j,\hat{k}]\mid D_i)
 p_0(x_{0j}\mid D_i)
 \right]
 ]
@@ -667,7 +658,6 @@ j_hat = argmax_over_j(term[j, k_hat])
 w_j
 \propto
 p_\mathrm{obs}(\tilde{S}\mid aG[i,j,\hat{k}])
-p_c(G[i,j,\hat{k}]\mid D_i)
 p_0(x_{0j}\mid D_i)
 ]
 
@@ -680,7 +670,7 @@ p_0(x_{0j}\mid D_i)
 とする。
 
 ```python
-w[j] = obs_like * pc_value * p0_value
+w[j] = obs_like * p0_value
 w = w / sum(w)
 ```
 
@@ -766,15 +756,13 @@ def estimate_crater_profile(D_obs, S_obs=None, sigma_S=None):
                 continue
 
             lp0 = log_p0[i, j]
-            lpc = log_pc(x_pred, D_grid[i])
-
             if S_obs is not None:
                 S_pred = 151.377 * x_pred
                 lobs = log_normal_pdf(S_obs, S_pred, sigma_S)
             else:
                 lobs = 0.0
 
-            log_term = lobs + lpc + lp0 + np.log(dx0)
+            log_term = lobs + lp0 + np.log(dx0)
             log_terms.append(log_term)
             all_log_terms[j, k] = log_term
 
@@ -824,9 +812,9 @@ def estimate_crater_profile(D_obs, S_obs=None, sigma_S=None):
 
 ```text
 1. D のみ入力
-2. p0(x0|D) と pc(xc|D) を用意
+2. p0(x0|D) を用意
 3. G[D,x0,s] テーブルを作る
-4. L(s)=Σ pc(G)p0 を最大化
+4. D のみでは拡散量を識別できないことを品質フラグで示す
 5. h50(r) を出す
 ```
 
@@ -835,7 +823,7 @@ def estimate_crater_profile(D_obs, S_obs=None, sigma_S=None):
 ```text
 6. LiDARから S を推定
 7. S_pred = 151.377 * G を計算
-8. Normal(S_obs; S_pred, sigma_S) を尤度に追加
+8. L(s)=Σ Normal(S_obs; S_pred, sigma_S)p0 を最大化
 9. h10/h50/h90 を出す
 ```
 

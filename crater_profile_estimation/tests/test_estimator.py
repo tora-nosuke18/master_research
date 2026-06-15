@@ -13,6 +13,8 @@ def test_estimator_returns_finite_profile(lookup_path):
     assert np.all(np.isfinite(result.height_q50_m))
     assert np.isclose(result.likelihood.sum(), 1.0)
     assert result.quality_flags["flag_no_slope_observation"]
+    assert result.quality_flags["flag_diffusion_unidentifiable"]
+    assert result.diffusion_amount_m2 == 0.0
 
 
 def test_steeper_observation_selects_deeper_current_crater(lookup_path):
@@ -40,7 +42,23 @@ def test_estimator_rejects_truncated_lookup(tmp_path):
         ),
     )
     with pytest.raises(RuntimeError, match="diffusion boundary"):
-        estimate_profile(20.0, lookup=path)
+        estimate_profile(
+            20.0,
+            slope_deg=0.0,
+            sigma_slope_deg=0.1,
+            lookup=path,
+        )
+
+
+def test_likelihood_uses_only_observation_and_initial_prior(lookup_path):
+    result = estimate_profile(
+        20.0,
+        slope_deg=10.0,
+        sigma_slope_deg=2.0,
+        lookup=lookup_path,
+    )
+    assert not result.quality_flags["flag_diffusion_unidentifiable"]
+    assert np.isclose(result.likelihood.sum(), 1.0)
 
 
 def test_estimator_does_not_run_diffusion_online(lookup_path, monkeypatch):
@@ -57,4 +75,3 @@ def test_estimator_does_not_run_diffusion_online(lookup_path, monkeypatch):
 def test_out_of_lookup_diameter_is_rejected(lookup_path):
     with pytest.raises(ValueError, match="outside lookup range"):
         estimate_profile(200.0, lookup=lookup_path)
-

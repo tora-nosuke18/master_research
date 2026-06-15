@@ -1,0 +1,28 @@
+{
+  "diameter_input_m": 20.0,
+  "measured_slope_deg": 9.163720083551908,
+  "sigma_slope_deg": 2.0,
+  "slope_fit_radial_fraction": [
+    0.2,
+    0.9
+  ],
+  "synthterrain_initial_dd": 0.11,
+  "synthterrain_current_dd": 0.06896183732485123,
+  "synthterrain_diffusion_amount_m2": 6.0,
+  "synthterrain_age_years": 209226329.6120504,
+  "estimated_current_dd": 0.05793524160981178,
+  "estimated_diffusion_amount_m2": 8.400000000000002,
+  "profile_rmse_m": 0.1049713198253122,
+  "quality_flags": {
+    "flag_no_slope_observation": false,
+    "flag_diffusion_unidentifiable": false,
+    "flag_low_likelihood": false,
+    "flag_multimodal_likelihood": false,
+    "flag_out_of_distribution_D": false,
+    "flag_slope_outlier": false,
+    "flag_occluded_inner_wall": false
+  },
+  "plot": "output/synthterrain_D20m_vs_estimated_without_pc.png",
+  "equal_scale_profile_plot": "output/synthterrain_D20m_vs_estimated_without_pc_profile_equal_scale.png",
+  "csv": "output/synthterrain_D20m_vs_estimated_without_pc.csv"
+}
