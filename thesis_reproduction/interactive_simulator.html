@@ -878,9 +878,9 @@
       if (!best || bestInliers.length < 4) return null;
       const refined = leastSquaresCircle(bestInliers) || best;
       if (refined.r < minRadius || refined.r > maxRadius) {
-        return { ...best, count: bestInliers.length };
+        return { ...best, count: bestInliers.length, inliers: bestInliers };
       }
-      return { ...refined, count: bestInliers.length };
+      return { ...refined, count: bestInliers.length, inliers: bestInliers };
     }
 
     function angularSpan(points, circle) {
@@ -973,8 +973,9 @@
         ctx.stroke();
       }
 
-      ctx.fillStyle = "#111";
+      const inliers = new Set(fit?.inliers || []);
       for (const pt of sim.points.filter(pt => pt.z < p.negativeThreshold)) {
+        ctx.fillStyle = inliers.has(pt) ? "#ff0000" : "#111";
         ctx.beginPath();
         ctx.arc(tx(pt.y), ty(pt.x), 2.5, 0, Math.PI * 2);
         ctx.fill();
@@ -989,7 +990,7 @@
       ctx.fillText("sensor", tx(sensor.y) + 20, ty(sensor.x) - 20);
     }
 
-    function drawProfile(p, sim) {
+    function drawProfile(p, sim, fit) {
       const canvas = canvases.profile;
       const { width, height } = resizeCanvas(canvas);
       const ctx = canvas.getContext("2d");
@@ -1040,8 +1041,9 @@
       }
       ctx.globalAlpha = 1;
 
-      ctx.fillStyle = "#111";
+      const inliers = new Set(fit?.inliers || []);
       for (const pt of sim.points.filter(pt => pt.profileBeam && pt.z < p.negativeThreshold)) {
+        ctx.fillStyle = inliers.has(pt) ? "#ff0000" : "#111";
         ctx.beginPath();
         ctx.arc(tx(pt.y), ty(pt.z), 2.5, 0, Math.PI * 2);
         ctx.fill();
@@ -1083,7 +1085,7 @@
       outputs.fitDiameter.textContent = fit ? `${(2 * fit.r).toFixed(1)} m` : "-";
 
       drawTop(p, sim, fit);
-      drawProfile(p, sim);
+      drawProfile(p, sim, fit);
     }
 
     for (const input of Object.values(controls)) {
