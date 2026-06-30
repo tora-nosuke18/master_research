@@ -283,7 +283,7 @@
           <label for="minDiameter">最小直径</label>
           <output id="minDiameterValue"></output>
         </div>
-        <input id="minDiameter" type="range" min="1" max="40" step="1" value="10">
+        <input id="minDiameter" type="range" min="2.5" max="40" step="0.5" value="10">
       </div>
 
       <div class="control">
@@ -374,7 +374,7 @@
         <div class="metric"><span>検出判定 DP</span><strong id="dp">0%</strong></div>
         <div class="metric"><span>補完率 CR</span><strong id="cr">0%</strong></div>
         <div class="metric"><span>補完直径</span><strong id="fitDiameter">0 m</strong></div>
-        <div class="metric"><span>対象クレーター D / d/D</span><strong id="ddr">-</strong></div>
+        <div class="metric"><span>対象クレーター 劣化後D / d/D</span><strong id="ddr">-</strong></div>
         <div class="metric"><span>対象年代</span><strong id="rimHeight">-</strong></div>
         <div class="metric"><span>総拡散ステップ</span><strong id="diffusionSteps">0</strong></div>
       </section>
@@ -664,6 +664,28 @@
       return a * (1 - ty) + b * ty;
     }
 
+    function degradedCraterDiameter(surface) {
+      const samples = 320;
+      const minRadius = surface.diameter * 0.25;
+      const maxRadius = surface.diameter * 1.5;
+      let bestRadius = surface.diameter / 2;
+      let bestHeight = -Infinity;
+      for (let i = 0; i <= samples; i++) {
+        const radius = minRadius + (maxRadius - minRadius) * i / samples;
+        const height = (
+          localSurfaceHeight(surface, radius, 0)
+          + localSurfaceHeight(surface, -radius, 0)
+          + localSurfaceHeight(surface, 0, radius)
+          + localSurfaceHeight(surface, 0, -radius)
+        ) / 4;
+        if (height > bestHeight) {
+          bestHeight = height;
+          bestRadius = radius;
+        }
+      }
+      return 2 * bestRadius;
+    }
+
     function terrainHeight(x, y) {
       let height = 0;
       for (const crater of craters) height += localSurfaceHeight(crater.surface, x - crater.x, y - crater.y);
@@ -694,7 +716,8 @@
           ageYears: random() * maxAge
         };
         crater.surface = buildCraterSurface(crater);
-        crater.currentDD = (crater.surface.max - crater.surface.min) / diameter;
+        crater.degradedDiameter = degradedCraterDiameter(crater.surface);
+        crater.currentDD = (crater.surface.max - crater.surface.min) / crater.degradedDiameter;
         craters.push(crater);
       }
       targetCrater = craters.reduce((best, crater) => {
@@ -725,7 +748,7 @@
     }
 
     function craterRadius(p) {
-      return targetCrater ? targetCrater.diameter / 2 : 1;
+      return targetCrater ? targetCrater.degradedDiameter / 2 : 1;
     }
 
     function trueCraterRadius(p) {
@@ -733,7 +756,7 @@
     }
 
     function targetDiameter() {
-      return targetCrater ? targetCrater.diameter : 2;
+      return targetCrater ? targetCrater.degradedDiameter : 2;
     }
 
     function sensorPose(p) {
@@ -1277,7 +1300,7 @@
         ctx.strokeStyle = "#000";
         ctx.lineWidth = crater === targetCrater ? 4 : 2;
         ctx.beginPath();
-        ctx.arc(tx(crater.y), ty(crater.x), crater.diameter / 2 * s, 0, Math.PI * 2);
+        ctx.arc(tx(crater.y), ty(crater.x), crater.degradedDiameter / 2 * s, 0, Math.PI * 2);
         ctx.stroke();
       }
 
@@ -1375,7 +1398,7 @@
     function update() {
       const p = params();
       outputs.fieldSize.textContent = `${p.fieldSize.toFixed(0)} m`;
-      outputs.minDiameter.textContent = `${p.minDiameter.toFixed(0)} m`;
+      outputs.minDiameter.textContent = `${formatTick(p.minDiameter, 0.5)} m`;
       outputs.maxDiameter.textContent = `${p.maxDiameter.toFixed(0)} m`;
       outputs.seed.textContent = String(p.seed);
       outputs.maxCraterCount.textContent = String(p.maxCraterCount);
@@ -1387,7 +1410,7 @@
       outputs.angularResolution.textContent = `${p.angularResolution.toFixed(2)}°`;
       outputs.negativeThreshold.textContent = `${p.negativeThreshold.toFixed(2)} m`;
       outputs.craterCount.textContent = terrain ? `${craters.length} / CSFD ${terrain.csfdCount}` : "0";
-      outputs.ddr.textContent = targetCrater ? `${targetCrater.diameter.toFixed(1)} m / ${targetCrater.currentDD.toFixed(3)}` : "-";
+      outputs.ddr.textContent = targetCrater ? `${targetCrater.degradedDiameter.toFixed(1)} m / ${targetCrater.currentDD.toFixed(3)}` : "-";
       outputs.rimHeight.textContent = targetCrater ? `${(targetCrater.ageYears / 1e6).toFixed(0)} Myr` : "-";
       outputs.diffusionSteps.textContent = terrain ? terrain.steps.toLocaleString("ja-JP") : "0";
 
@@ -1510,7 +1533,7 @@
       let selected = null;
       let bestNormalizedDistance = Infinity;
       for (const crater of craters) {
-        const normalizedDistance = Math.hypot(worldX - crater.x, worldY - crater.y) / (crater.diameter / 2);
+        const normalizedDistance = Math.hypot(worldX - crater.x, worldY - crater.y) / (crater.degradedDiameter / 2);
         if (normalizedDistance <= 1 && normalizedDistance < bestNormalizedDistance) {
           selected = crater;
           bestNormalizedDistance = normalizedDistance;
@@ -1552,9 +1575,9 @@
     });
 
     document.getElementById("downloadCsv").addEventListener("click", () => {
-      const header = "id,x,y,diameter,age_years,equilibrium_age_years,initial_d_over_D,current_d_over_D\n";
+      const header = "id,x,y,sampled_diameter,degraded_diameter,age_years,equilibrium_age_years,initial_d_over_D,current_d_over_D\n";
       const rows = craters.map(crater => [
-        crater.id, crater.x, crater.y, crater.diameter, crater.ageYears,
+        crater.id, crater.x, crater.y, crater.diameter, crater.degradedDiameter, crater.ageYears,
         crater.equilibriumAgeYears, crater.initialDD, crater.currentDD
       ].join(",")).join("\n");
       const link = document.createElement("a");
