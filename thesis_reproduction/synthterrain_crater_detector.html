@@ -314,6 +314,14 @@
 
       <div class="control">
         <div class="label-row">
+          <label for="targetDiameter">対象直径</label>
+          <output id="targetDiameterValue"></output>
+        </div>
+        <input id="targetDiameter" type="range" min="2.5" max="100" step="0.5" value="10">
+      </div>
+
+      <div class="control">
+        <div class="label-row">
           <label for="height">センサ設置高さ</label>
           <output id="heightValue"></output>
         </div>
@@ -421,6 +429,7 @@
       seed: document.getElementById("seed"),
       maxCraterCount: document.getElementById("maxCraterCount"),
       targetAge: document.getElementById("targetAge"),
+      targetDiameter: document.getElementById("targetDiameter"),
       height: document.getElementById("height"),
       distance: document.getElementById("distance"),
       rangeNoise: document.getElementById("rangeNoise"),
@@ -437,6 +446,7 @@
       seed: document.getElementById("seedValue"),
       maxCraterCount: document.getElementById("maxCraterCountValue"),
       targetAge: document.getElementById("targetAgeValue"),
+      targetDiameter: document.getElementById("targetDiameterValue"),
       height: document.getElementById("heightValue"),
       distance: document.getElementById("distanceValue"),
       rangeNoise: document.getElementById("rangeNoiseValue"),
@@ -782,6 +792,30 @@
       outputs.targetAge.textContent = `${ageMyr.toFixed(0)} Myr`;
     }
 
+    function syncTargetDiameterControl() {
+      if (!targetCrater) {
+        controls.targetDiameter.disabled = true;
+        controls.targetDiameter.value = "10";
+        outputs.targetDiameter.textContent = "-";
+        return;
+      }
+      controls.targetDiameter.disabled = false;
+      controls.targetDiameter.value = String(Math.round(targetCrater.diameter * 2) / 2);
+      outputs.targetDiameter.textContent = `${formatTick(targetCrater.diameter, 0.5)} m`;
+    }
+
+    function setTargetDiameter(diameter, p) {
+      if (!targetCrater) return;
+      targetCrater.diameter = diameter;
+      targetCrater.initialDD = stoparFreshDD(diameter);
+      targetCrater.equilibriumAgeYears = equilibriumAge(p.csfd, diameter);
+      targetCrater.ageYears = Math.min(targetCrater.ageYears, targetCrater.equilibriumAgeYears);
+      rebuildCraterSurface(targetCrater);
+      refreshTerrainStats(p);
+      syncTargetAgeControl();
+      syncTargetDiameterControl();
+    }
+
     function generatePopulation(p) {
       const random = mulberry32(p.seed);
       const minD = Math.min(p.minDiameter, p.maxDiameter - 0.1);
@@ -801,6 +835,7 @@
           x: (random() - 0.5) * p.fieldSize,
           y: (random() - 0.5) * p.fieldSize,
           diameter,
+          sampledDiameter: diameter,
           initialDD: stoparFreshDD(diameter),
           equilibriumAgeYears: maxAge,
           ageYears: random() * maxAge
@@ -822,6 +857,7 @@
       };
       refreshTerrainStats(p);
       syncTargetAgeControl();
+      syncTargetDiameterControl();
     }
 
     function craterRadius(p) {
@@ -1475,6 +1511,7 @@
     function update() {
       const p = params();
       syncTargetAgeControl();
+      syncTargetDiameterControl();
       outputs.fieldSize.textContent = `${p.fieldSize.toFixed(0)} m`;
       outputs.minDiameter.textContent = `${formatTick(p.minDiameter, 0.5)} m`;
       outputs.maxDiameter.textContent = `${p.maxDiameter.toFixed(0)} m`;
@@ -1530,6 +1567,10 @@
       targetCrater.ageYears = Number(controls.targetAge.value) * 1e6;
       rebuildCraterSurface(targetCrater);
       refreshTerrainStats(params());
+      update();
+    });
+    controls.targetDiameter.addEventListener("input", () => {
+      setTargetDiameter(Number(controls.targetDiameter.value), params());
       update();
     });
 
@@ -1630,6 +1671,7 @@
 
       targetCrater = selected;
       syncTargetAgeControl();
+      syncTargetDiameterControl();
       zoom.profile = 1;
       pan.profile.y = 0;
       pan.profile.z = 0;
@@ -1663,9 +1705,9 @@
     });
 
     document.getElementById("downloadCsv").addEventListener("click", () => {
-      const header = "id,x,y,sampled_diameter,degraded_diameter,age_years,equilibrium_age_years,initial_d_over_D,current_d_over_D\n";
+      const header = "id,x,y,sampled_diameter,current_diameter,degraded_diameter,age_years,equilibrium_age_years,initial_d_over_D,current_d_over_D\n";
       const rows = craters.map(crater => [
-        crater.id, crater.x, crater.y, crater.diameter, crater.degradedDiameter, crater.ageYears,
+        crater.id, crater.x, crater.y, crater.sampledDiameter ?? crater.diameter, crater.diameter, crater.degradedDiameter, crater.ageYears,
         crater.equilibriumAgeYears, crater.initialDD, crater.currentDD
       ].join(",")).join("\n");
       const link = document.createElement("a");
